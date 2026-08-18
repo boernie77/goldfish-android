@@ -1,0 +1,11 @@
+.DS_Store
+.gradle/
+.idea/
+.kotlin/
+build/
+local.properties
+
+# Release-Signing: NIEMALS committen (Keystore + Klartext-Passwort).
+*.jks
+*.keystore
+keystore.properties
