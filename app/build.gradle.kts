@@ -22,8 +22,8 @@ android {
         applicationId = "com.goldfish.android"
         minSdk = 26
         targetSdk = 36
-        versionCode = 101
-        versionName = "1.2.69"
+        versionCode = 103
+        versionName = "1.2.71"
         // libVLC ist riesig (35MB+ pro ABI). Nur arm64-v8a + armeabi-v7a
         // bauen — deckt > 99% der Android-Geraete ab (alle modernen
         // Tablets, Phones) und vermeidet x86_64-Konflikte die zu Crashes
@@ -75,6 +75,13 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+        // AGP lehnt android:extractNativeLibs="true" im Manifest jetzt ab
+        // ("Avoid setting ... explicitly") — gleiche Wirkung (native .so-Libs
+        // von nextlib/libvlc unkomprimiert bei Installation extrahieren statt
+        // per mmap direkt aus der APK laden) jetzt hier statt im Manifest.
+        jniLibs {
+            useLegacyPackaging = true
         }
     }
 }

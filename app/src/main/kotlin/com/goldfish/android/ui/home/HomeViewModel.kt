@@ -133,13 +133,18 @@ class HomeViewModel @Inject constructor(
         val st = _state.value
         val server = if (st.offlineOnly) st.offlineLibraries else st.libraries
         val serverDisplay = server.map { LibraryDisplay(it.id, it.name, it.kind, isLocal = false) }
-        // Privacy-Filter: lokale Libs nur anzeigen wenn sie dem aktuellen
-        // User gehoeren oder noch keinen Owner haben (Legacy vor User-
-        // Isolation = wird beim naechsten Settings-Aufruf geclaimt).
+        // Privacy-Filter: lokale Libs NUR anzeigen, wenn sie dem aktuellen User
+        // WIRKLICH gehoeren (strict). Bug 2026-09-02: die vorherige Version hat
+        // ownerUsername=NULL fuer JEDEN User als "gehoert mir" durchgelassen —
+        // gedacht als kurzes Uebergangsfenster bis zum Claim, aber der Claim
+        // wurde nirgends ausgeloest (siehe authStatus-Collector oben), NULL-Libs
+        // blieben also fuer immer fuer ALLE User sichtbar. Ein unclaimed Library
+        // ist jetzt fuer NIEMANDEN sichtbar, bis sie geclaimt ist (siehe oben) —
+        // sicherer Default als "sichtbar fuer alle".
         val currentUser = authRepository.authStatus.value
             ?.takeIf { it.isAuthenticated }?.username
         val localDisplay = st.localLibraries
-            .filter { it.ownerUsername.isNullOrBlank() || it.ownerUsername == currentUser }
+            .filter { it.ownerUsername != null && it.ownerUsername == currentUser }
             .map { LibraryDisplay(it.id, it.name, it.kind, isLocal = true) }
         return serverDisplay + localDisplay
     }

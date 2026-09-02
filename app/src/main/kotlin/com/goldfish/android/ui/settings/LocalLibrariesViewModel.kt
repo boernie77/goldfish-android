@@ -28,14 +28,8 @@ class LocalLibrariesViewModel @Inject constructor(
     private val scanner: LocalScanner,
     private val enricher: LocalEnricher,
     private val settingsDataStore: SettingsDataStore,
-    private val authRepository: AuthRepository,
-    @dagger.hilt.android.qualifiers.ApplicationContext private val appContext: android.content.Context
+    private val authRepository: AuthRepository
 ) : ViewModel() {
-
-    private val prefs by lazy {
-        appContext.getSharedPreferences("local_libraries_meta", android.content.Context.MODE_PRIVATE)
-    }
-    private val LEGACY_CLAIM_DONE_KEY = "legacy_libs_claimed_v4"
 
     /** Aktuell im Vergleichs-Filter selektierte Lib-IDs (aus DataStore). */
     val compareLibraryIds: StateFlow<Set<Int>> =

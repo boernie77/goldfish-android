@@ -65,14 +65,6 @@ class LocalLibraryRepository @Inject constructor(
         libraryDao.setOwner(libraryId, newOwner)
     }
 
-    /** Weist alle "owner = NULL"-Libs dem User zu. Wird beim ersten Aufruf
-     *  der LocalLibraries-Section gerufen, sobald der User-Kontext bekannt
-     *  ist. Idempotent — wenn keine NULL-Libs existieren, no-op.
-     *  Returns die Anzahl umgemarkter Libs. */
-    suspend fun claimUnownedFor(username: String): Int {
-        return try { libraryDao.claimUnowned(username) } catch (_: Exception) { 0 }
-    }
-
     suspend fun getLibrary(id: Int): LocalLibraryEntity? = libraryDao.get(id)
 
     /** Neue lokale Library anlegen — automatisch dem aktuellen User zugeordnet.

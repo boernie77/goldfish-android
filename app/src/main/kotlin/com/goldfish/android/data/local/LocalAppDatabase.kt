@@ -90,17 +90,15 @@ interface LocalLibraryDao {
     @Query("SELECT * FROM local_libraries ORDER BY createdAt")
     fun observeAll(): Flow<List<LocalLibraryEntity>>
 
-    /** Strict-Filter: NUR Libs des aktuellen Users. NULL-Libs erscheinen
-     *  hier NICHT — sie werden vorher per Repository.claimUnownedFor
-     *  dem allerersten Login-User assigned (one-shot via SharedPref). */
+    /** Strict-Filter: NUR Libs des aktuellen Users. NULL-Libs (unclaimed,
+     *  z.B. Legacy vor der User-Isolation) erscheinen hier bewusst NICHT —
+     *  es gibt KEINEN Auto-Claim (siehe LocalLibrariesViewModel.kt: wurde
+     *  entfernt, weil er auf Familien-Geräten dem falsch zuerst eingeloggten
+     *  User die Libs zugeordnet hat). Der User muss sie manuell über
+     *  "Andere Bibliotheken" → "Mir zuordnen" (observeNotForUser + setOwner)
+     *  beanspruchen. */
     @Query("SELECT * FROM local_libraries WHERE ownerUsername = :username ORDER BY createdAt")
     fun observeForUser(username: String): Flow<List<LocalLibraryEntity>>
-
-    @Query("SELECT * FROM local_libraries WHERE ownerUsername IS NULL")
-    suspend fun listUnowned(): List<LocalLibraryEntity>
-
-    @Query("UPDATE local_libraries SET ownerUsername = :username WHERE ownerUsername IS NULL")
-    suspend fun claimUnowned(username: String): Int
 
     @Query("UPDATE local_libraries SET ownerUsername = :newOwner WHERE id = :libraryId")
     suspend fun setOwner(libraryId: Int, newOwner: String?)

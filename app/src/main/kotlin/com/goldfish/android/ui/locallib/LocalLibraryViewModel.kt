@@ -229,10 +229,15 @@ class LocalLibraryViewModel @Inject constructor(
                 return@launch
             }
             // Owner-Check fuer Library-Navigation kommt absichtlich NICHT
-            // hier hin — der Filter in der Settings-UI sorgt fuer Privacy,
-            // hier blockieren wir nichts (sonst kommt es zu Admin-sperrt-
-            // sich-aus-Edge-Cases). Echte Lib-Hide vs. Player-Open ist
-            // unkritisch weil nur eigene Items im UI auftauchen koennen.
+            // hier hin — dieses VM vertraut darauf, dass der Aufrufer
+            // (HomeScreen/Settings) nur IDs uebergibt, auf die der User
+            // Zugriff haben soll (sonst Admin-sperrt-sich-aus-Edge-Cases).
+            // Bug 2026-09-02: genau diese Trust-Boundary war kaputt —
+            // HomeViewModel.displayLibraries() liess ownerUsername=NULL-Libs
+            // fuer JEDEN User durch, wodurch fremde Libs hier ganz normal
+            // ladbar waren. Jetzt strikt gefiltert (siehe HomeViewModel.kt) —
+            // dieses VM bleibt bewusst ohne eigene Nochmal-Pruefung, ist also
+            // weiterhin nur so sicher wie seine Aufrufer, nicht per se sicher.
             // Zusammengelegte lokale Bibliotheken: Items aus ALLEN IDs kombinieren.
             val items = if (mergedLibraryIds.size > 1) {
                 mergedLibraryIds.flatMap { id ->

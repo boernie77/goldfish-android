@@ -285,6 +285,23 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            // Lizenz-Check 2026-09-02: TMDB verlangt sichtbare Attribution IN der App.
+            Text(
+                text = "This product uses the TMDB API but is not endorsed or certified by TMDB.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            // Privacy-Policy-URL für Play-Store-Einreichung (Store-Bedingung, kein
+            // Impressum nötig für einen privaten Self-Hosted-Server). Seite liegt
+            // server-seitig (datenschutz.html, siehe Goldfish-Server-Repo) — NICHT
+            // hardcodiert, da jeder Self-Hoster seinen eigenen Server hat (und
+            // dieses Repo öffentlich ist: keine persönliche Domain im Code).
+            val serverUrl = state.settings.serverUrl.trimEnd('/')
+            if (serverUrl.isNotBlank()) {
+                TextButton(onClick = {
+                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("$serverUrl/datenschutz.html")))
+                }) { Text("Datenschutz") }
+            }
         }
     }
 }
