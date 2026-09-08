@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -33,6 +34,7 @@ fun LoginScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val focusManager = LocalFocusManager.current
+    val uriHandler = LocalUriHandler.current
 
     LaunchedEffect(state.loginSuccess) {
         if (state.loginSuccess) {
@@ -177,6 +179,18 @@ fun LoginScreen(
                         )
                     )
                 }
+            }
+
+            // User-Anfrage 2026-09-08: Hinweis fuer Leute ohne eigenen Server (z. B.
+            // Play-Store-Stoeberer) — das Menue mit Links etc. sieht man erst NACH
+            // dem Login, das setzt aber schon einen Server voraus. Der Login-Screen
+            // ist der einzige Screen, den garantiert auch jemand ohne Server sieht.
+            TextButton(onClick = { uriHandler.openUri("https://github.com/boernie77/goldfish") }) {
+                Text(
+                    text = "Noch keinen Server? Mehr erfahren →",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
     }
