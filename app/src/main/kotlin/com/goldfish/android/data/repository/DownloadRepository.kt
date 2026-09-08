@@ -186,6 +186,13 @@ class DownloadRepository @Inject constructor(
         downloadDir: File,
         onProgress: suspend (DownloadResult.Progress) -> Unit
     ): DownloadResult = withContext(Dispatchers.IO) {
+        // User-Frage 2026-09-08: "gibt ein abgebrochener Download den Speicher wieder frei?"
+        // — bisher NICHT: destFile war ein `val` INNERHALB des try-Blocks, im catch-Block
+        // (jeder Fehler inkl. Netzwerkabbruch UND Coroutine-Cancellation, siehe unten) blieb
+        // die bereits teilweise geschriebene Datei einfach liegen — ohne DB-Eintrag, also
+        // für die App unsichtbar und nie über die UI löschbar. destFile jetzt VOR dem try
+        // deklariert, damit der catch-Block sie kennt und aufräumen kann.
+        var destFile: File? = null
         try {
             val response = apiClientProvider.api.downloadItem(item.id)
             if (!response.isSuccessful) {
@@ -196,13 +203,14 @@ class DownloadRepository @Inject constructor(
             val ext = item.title.substringAfterLast(".", "mkv").lowercase()
             val safeTitle = item.displayTitle.replace(Regex("[<>:\"/\\\\|?*]"), "_")
             val filename = "$safeTitle.${ext.ifBlank { "mkv" }}"
-            val destFile = File(downloadDir, filename)
+            val file = File(downloadDir, filename)
+            destFile = file
 
             val totalBytes = body.contentLength()
             var bytesDownloaded = 0L
 
             body.byteStream().use { input ->
-                destFile.outputStream().use { output ->
+                file.outputStream().use { output ->
                     val buffer = ByteArray(8192)
                     var bytes: Int
                     while (input.read(buffer).also { bytes = it } != -1) {
@@ -215,8 +223,8 @@ class DownloadRepository @Inject constructor(
 
             val entity = DownloadEntity(
                 itemId = item.id,
-                localPath = destFile.absolutePath,
-                fileSize = destFile.length(),
+                localPath = file.absolutePath,
+                fileSize = file.length(),
                 downloadedAt = System.currentTimeMillis(),
                 title = item.displayTitle,
                 libraryId = item.libraryId,
@@ -226,8 +234,16 @@ class DownloadRepository @Inject constructor(
             dao.insertDownload(entity)
             // Poster + Thumb fuer Offline mit-cachen (best-effort, lautlos)
             try { cacheItemImages(item) } catch (_: Exception) {}
-            DownloadResult.Success(destFile.absolutePath)
+            DownloadResult.Success(file.absolutePath)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // Kotlin-Falle: CancellationException ist eine normale Exception-Unterklasse und
+            // würde vom generischen catch(Exception) darunter sonst STILL geschluckt — bricht
+            // die kooperative Coroutine-Cancellation (der Aufrufer wartet dann evtl. ewig auf
+            // ein Ergebnis, das nie kommt). Erst aufräumen, dann zwingend weiterwerfen.
+            destFile?.let { if (it.exists()) it.delete() }
+            throw e
         } catch (e: Exception) {
+            destFile?.let { if (it.exists()) it.delete() }
             DownloadResult.Error(e.message ?: "Download fehlgeschlagen")
         }
     }
@@ -238,6 +254,12 @@ class DownloadRepository @Inject constructor(
         treeUri: Uri,
         onProgress: suspend (DownloadResult.Progress) -> Unit
     ): DownloadResult = withContext(Dispatchers.IO) {
+        // Gleiches Leck wie in downloadItem() (siehe dort) — zusaetzlich hier: der
+        // "Stream nicht oeffenbar"-Fall gibt bisher per `return@withContext` DIREKT
+        // zurueck, OHNE durch den catch-Block zu laufen, obwohl docFile zu dem Zeitpunkt
+        // schon angelegt war (SAF createFile() legt sofort eine leere Datei an). Beide
+        // Faelle jetzt ueber denselben Cleanup-Pfad.
+        var docFile: DocumentFile? = null
         try {
             val tree = DocumentFile.fromTreeUri(context, treeUri)
                 ?: return@withContext DownloadResult.Error("Ordner nicht zugänglich")
@@ -254,14 +276,20 @@ class DownloadRepository @Inject constructor(
 
             // Falls eine Datei mit diesem Namen schon existiert: vorher löschen
             tree.findFile(filename)?.delete()
-            val docFile = tree.createFile("video/*", filename)
+            val file = tree.createFile("video/*", filename)
                 ?: return@withContext DownloadResult.Error("Konnte Datei nicht anlegen")
+            docFile = file
 
             val totalBytes = body.contentLength()
             var bytesDownloaded = 0L
 
+            val stream = context.contentResolver.openOutputStream(file.uri)
+            if (stream == null) {
+                file.delete()
+                return@withContext DownloadResult.Error("Stream nicht öffenbar")
+            }
             body.byteStream().use { input ->
-                context.contentResolver.openOutputStream(docFile.uri)?.use { output ->
+                stream.use { output ->
                     val buffer = ByteArray(8192)
                     var bytes: Int
                     while (input.read(buffer).also { bytes = it } != -1) {
@@ -269,14 +297,14 @@ class DownloadRepository @Inject constructor(
                         bytesDownloaded += bytes
                         onProgress(DownloadResult.Progress(bytesDownloaded, totalBytes))
                     }
-                } ?: return@withContext DownloadResult.Error("Stream nicht öffenbar")
+                }
             }
 
-            val savedUri = docFile.uri.toString()
+            val savedUri = file.uri.toString()
             val entity = DownloadEntity(
                 itemId = item.id,
                 localPath = savedUri,
-                fileSize = docFile.length(),
+                fileSize = file.length(),
                 downloadedAt = System.currentTimeMillis(),
                 title = item.displayTitle,
                 libraryId = item.libraryId,
@@ -286,7 +314,11 @@ class DownloadRepository @Inject constructor(
             dao.insertDownload(entity)
             try { cacheItemImages(item) } catch (_: Exception) {}
             DownloadResult.Success(savedUri)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            docFile?.delete()
+            throw e
         } catch (e: Exception) {
+            docFile?.delete()
             DownloadResult.Error(e.message ?: "Download fehlgeschlagen")
         }
     }
