@@ -84,6 +84,15 @@ sealed class Screen(val route: String) {
     object Collections : Screen("collections")
     object Playlists : Screen("playlists")
     object Search : Screen("search")
+    object MusicLibrary : Screen("music-library/{libraryId}/{libraryName}") {
+        fun createRoute(libraryId: Int, libraryName: String) =
+            "music-library/$libraryId/${java.net.URLEncoder.encode(libraryName, "UTF-8")}"
+    }
+    object AlbumDetail : Screen("album/{albumId}") {
+        fun createRoute(albumId: Int) = "album/$albumId"
+    }
+    object MusicPlaylists : Screen("music-playlists")
+    object NowPlaying : Screen("now-playing")
     // Lokale (on-device) Bibliotheken
     object LocalLibrary : Screen("local-library/{libraryId}") {
         fun createRoute(libraryId: Int) = "local-library/$libraryId"
@@ -136,6 +145,9 @@ fun GoldfishNavHost(
                 },
                 onNavigateToLibrary = { libraryId ->
                     navController.navigate(Screen.Library.createRoute(libraryId))
+                },
+                onNavigateToMusicLibrary = { libraryId, libraryName ->
+                    navController.navigate(Screen.MusicLibrary.createRoute(libraryId, libraryName))
                 },
                 onNavigateToLocalLibrary = { libraryId ->
                     navController.navigate(Screen.LocalLibrary.createRoute(libraryId))
@@ -425,6 +437,48 @@ fun GoldfishNavHost(
                 onOpenLocalItem = { itemId ->
                     navController.navigate(Screen.LocalPlayer.createRoute(itemId))
                 }
+            )
+        }
+
+        composable(
+            Screen.MusicLibrary.route,
+            arguments = listOf(
+                navArgument("libraryId") { type = NavType.IntType },
+                navArgument("libraryName") { type = NavType.StringType }
+            )
+        ) { backStackEntry ->
+            val libraryId = backStackEntry.arguments?.getInt("libraryId") ?: 0
+            val libraryName = backStackEntry.arguments?.getString("libraryName")
+                ?.let { java.net.URLDecoder.decode(it, "UTF-8") } ?: ""
+            com.goldfish.android.ui.music.MusicLibraryScreen(
+                libraryId = libraryId,
+                libraryName = libraryName,
+                onBack = { navController.popBackStack() },
+                onOpenAlbum = { albumId -> navController.navigate(Screen.AlbumDetail.createRoute(albumId)) },
+                onOpenMusicPlaylists = { navController.navigate(Screen.MusicPlaylists.route) }
+            )
+        }
+
+        composable(
+            Screen.AlbumDetail.route,
+            arguments = listOf(navArgument("albumId") { type = NavType.IntType })
+        ) { backStackEntry ->
+            val albumId = backStackEntry.arguments?.getInt("albumId") ?: 0
+            com.goldfish.android.ui.music.AlbumDetailScreen(
+                albumId = albumId,
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(Screen.MusicPlaylists.route) {
+            com.goldfish.android.ui.music.MusicPlaylistsScreen(
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(Screen.NowPlaying.route) {
+            com.goldfish.android.ui.music.NowPlayingScreen(
+                onBack = { navController.popBackStack() }
             )
         }
 

@@ -20,7 +20,7 @@ data class AuthStatus(
 data class Library(
     val id: Int,
     val name: String,
-    val kind: String, // "movies", "tv", "private"
+    val kind: String, // "movies", "tv", "private", "music"
     val sortOrder: Int = 0,
     val channelLabelOnTop: Boolean = true
 )
@@ -75,7 +75,21 @@ data class Item(
     val variantCount: Int = 0,
     val container: String? = null,
     val videoCodec: String? = null,
-    val audioCodec: String? = null
+    val audioCodec: String? = null,
+    // Musik-Felder (nur kind=music, aus eingebetteten Dateitags gelesen — siehe
+    // Server-CLAUDE.md "Musik-Bibliotheken"). Cover kommt separat ueber
+    // musicAlbumId + /api/poster/album/{id}, kein eigenes Item-Feld dafuer.
+    val artist: String? = null,
+    val album: String? = null,
+    val genre: String? = null,
+    val trackNo: Int? = null,
+    val musicAlbumId: Int? = null,
+    // Erscheinungsjahr aus dem Musik-Tag — bewusst eigenes Feld, NICHT releasedAt
+    // (das ist bei jedem Item durch den Datei-mtime-Fallback immer gesetzt).
+    val year: Int? = null,
+    // user_item_state.last_played_at — fuer den "zuletzt abgespielt zuerst"-Filter
+    // in der "Alle Titel"-Ansicht.
+    val lastPlayedAt: String? = null
 ) {
     val displayTitle: String
         get() = metadata?.title?.takeIf { it.isNotBlank() } ?: title
@@ -260,12 +274,67 @@ data class Playlist(
     val itemCount: Int = 0,
     val posterItemId: Int? = null,
     val posterMetadataId: Int? = null,
-    val createdAt: String? = null
+    val createdAt: String? = null,
+    val kind: String = "video" // "video" | "music"
 )
 
 @JsonClass(generateAdapter = true)
 data class CreatePlaylistRequest(
-    val name: String
+    val name: String,
+    val kind: String = "video"
+)
+
+// --- Musik-Bibliotheken (kind=music) ---
+
+@JsonClass(generateAdapter = true)
+data class MusicAlbum(
+    val id: Int,
+    val libraryId: Int,
+    val artist: String = "",
+    val album: String = "",
+    val year: Int? = null,
+    val genre: String? = null,
+    val coverSource: String? = null,
+    val trackCount: Int? = null,
+    val favorite: Boolean? = null
+) {
+    val displayTitle: String
+        get() = album.ifBlank { "(Unbekanntes Album)" }
+}
+
+@JsonClass(generateAdapter = true)
+data class AlbumDetail(
+    val album: MusicAlbum,
+    val tracks: List<Item> = emptyList()
+)
+
+@JsonClass(generateAdapter = true)
+data class SetAlbumFavoriteRequest(
+    val favorite: Boolean
+)
+
+@JsonClass(generateAdapter = true)
+data class UpdateMusicAlbumMetadataRequest(
+    val artist: String? = null,
+    val album: String? = null,
+    val genre: String? = null,
+    val year: Int? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class PlaybackStopRequest(
+    val reason: String, // "ended" | "closed"
+    val positionSec: Double = 0.0,
+    val durationSec: Double = 0.0
+)
+
+@JsonClass(generateAdapter = true)
+data class UpdateMusicItemMetadataRequest(
+    val title: String? = null,
+    val artist: String? = null,
+    val album: String? = null,
+    val trackNo: Int? = null,
+    val genre: String? = null
 )
 
 // --- Cast / Schauspieler ---

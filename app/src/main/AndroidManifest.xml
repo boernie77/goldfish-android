@@ -8,6 +8,10 @@
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- Musik-Hintergrundwiedergabe (MediaSessionService) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <application
         android:name=".GoldfishApp"
@@ -32,6 +36,18 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Musik-Hintergrundwiedergabe: haelt ExoPlayer + MediaSession, so
+             ueberlebt Musik Navigation/Backgrounding mit Notification +
+             Lockscreen-Controls (Media3-Standardmuster). -->
+        <service
+            android:name=".ui.music.MusicPlaybackService"
+            android:foregroundServiceType="mediaPlayback"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="androidx.media3.session.MediaSessionService" />
+            </intent-filter>
+        </service>
 
         <!-- WorkManager init via HiltWorkerFactory (disable default init) -->
         <provider

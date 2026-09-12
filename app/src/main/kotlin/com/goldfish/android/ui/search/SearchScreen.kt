@@ -113,7 +113,18 @@ fun SearchScreen(
                 if (state.serverResults.isNotEmpty()) {
                     item { SectionHeader("🌐 Server (${state.serverResults.size})") }
                     items(state.serverResults) { item ->
-                        ServerResultRow(item, state.baseUrl) { onOpenServerItem(item.id) }
+                        // Musik-Treffer: flache Titel-Zeile + direktes Abspielen
+                        // ueber den Musik-Player (kein Album-Bundling, kein
+                        // Detail-Screen — Tracks haben keinen). Gleiches
+                        // Muster wie der zeitgleich gefixte Browser/iOS-Bug.
+                        if (item.musicAlbumId != null) {
+                            com.goldfish.android.ui.components.MusicTrackRow(
+                                item = item,
+                                onClick = { viewModel.playMusicSearchResult(item) }
+                            )
+                        } else {
+                            ServerResultRow(item, state.baseUrl) { onOpenServerItem(item.id) }
+                        }
                     }
                 }
                 if (state.offlineResults.isNotEmpty()) {

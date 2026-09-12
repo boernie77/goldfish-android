@@ -59,9 +59,81 @@ Konvention" — nicht ändern, sonst stille App-Bugs:
   SharedPrefs). Die App profitiert NICHT vom Authentik-SSO im Browser.
 - Kein Cast/AirPlay (die Buttons im Player sind browser-only).
 - Kein Admin (User-Verwaltung, Library-Manager, Scan, NFO-Bulk,
-  Whisper-UI etc.).
+  Whisper-UI etc.) — **Ausnahme seit der Musik-Bibliothek** (s.u.): zwei
+  schmale, admin-gated Metadaten-Edit-Dialoge (Track/Album), sonst
+  unverändert kein Admin-UI.
 
 ## Feature-/Bugfix-Chronik
+
+### Musik-Bibliotheken (kind=music), seit 2026-09-12 — volle Parität zu iOS
+
+Ausgangspunkt: User-Report "Musiktitel-Suche findet nichts" auf iOS/Browser
+führte zur Entdeckung, dass Android **gar keine** Musik-Unterstützung hatte
+(kein `artist`/`album`/`genre`/`musicAlbumId` auf `Item`, keine Album-Ansicht,
+keine Musik-Wiedergabe). User-Entscheidung: volle Parität zu iOS in einem
+Rutsch, inkl. echtem Hintergrund-Audio-Player (nicht nur der bestehende
+Video-Player wiederverwendet) — siehe Plan
+`~/.claude/plans/breezy-coalescing-corbato.md` (Server-Repo-Session) für die
+volle Herleitung/Exploration.
+
+- **Modelle** (`Models.kt`): `Item` um `artist/album/genre/trackNo/
+  musicAlbumId/year/lastPlayedAt` erweitert (additiv, nullable). Neue
+  `MusicAlbum`/`AlbumDetail`. `Playlist`/`CreatePlaylistRequest` um
+  `kind: String = "video"` erweitert (Server-Split video/music) —
+  bestehender `PlaylistsViewModel` ruft jetzt explizit `kind="video"` auf,
+  damit neue Musik-Playlists dort nicht mit auftauchen.
+- **API/Repository**: `GoldfishApi` um Album-/Genre-/Metadaten-Endpoints
+  + `playback/{id}/start|stop` ergänzt (Activity-Log-Parity, bisher von
+  KEINEM Client dieser App genutzt — bewusst NUR für Musik ergänzt, kein
+  Risiko für den bestehenden Video-Pfad). Neues `MusicRepository`
+  (Alben/Genres/Metadaten-Edit), `ItemRepository` um `genre`-Filter in
+  `getItems` + `kind`-Param in `getPlaylists`/`createPlaylist` erweitert.
+- **Hintergrund-Audio-Player** (die grösste Neuerung): `MusicPlaybackService
+  : MediaSessionService` (Media3 — `media3-session` war seit Langem eine
+  ungenutzte Gradle-Dependency) hält EINEN ExoPlayer + EINE MediaSession,
+  liefert Lockscreen-/Benachrichtigungs-Controls automatisch aus der
+  MediaItem-Metadata. `MusicPlayerController` (App-weites Singleton) haltet
+  die `MediaController`-Verbindung, ist die EINZIGE Stelle, die Transport-
+  Befehle fürs komplette App auslöst. Manifest: neuer `<service
+  foregroundServiceType="mediaPlayback">` + `FOREGROUND_SERVICE_MEDIA_
+  PLAYBACK`/`POST_NOTIFICATIONS`/`WAKE_LOCK`-Permissions.
+  `POST_NOTIFICATIONS` (API 33+) wird lazy beim ersten Track-Start
+  angefragt (`MainActivity`), Wiedergabe blockiert NIE darauf.
+- **Mini-Player**: die App hat KEINE Bottom-Nav-Scaffold — `MainActivity`
+  rendert `GoldfishNavHost` direkt. `MusicMiniPlayerBar` sitzt deshalb als
+  fixer Sibling UNTER dem NavHost in einer `Column` (nicht überlagernd),
+  überlebt dadurch jede Navigation ohne Pro-Screen-Wiring. Tap → `Screen.
+  NowPlaying` (voller Player: Scrub-Bar, Transport, Shuffle).
+  Positions-Anzeige läuft über `MusicPlayerController.pollPosition()`
+  (500ms-Timer im UI) — Media3 feuert keinen periodischen Zeit-Callback.
+- **UI**: `MusicLibraryScreen` (Album-Grid/-Liste + "Alle Titel"-Umschalter,
+  Genre-Filter, Sortierung Künstler/Album/Jahr + Richtung, "zuletzt
+  abgespielt zuerst" nur in Alle-Titel), `AlbumDetailScreen` (Play/Shuffle,
+  Track-Favorit vs. Album-Favorit — **zwei getrennte Server-Konzepte**, nie
+  auf denselben Button/Zustand mappen), eigener `MusicPlaylistsScreen`
+  (getrennt vom bestehenden Video-`PlaylistsScreen`, um den funktionierenden
+  Pfad nicht anzufassen), `EditTrackMetadataDialog`/`EditAlbumMetadataDialog`
+  (admin-only, eigene `music-metadata`/`albums/{id}/metadata`-Endpoints —
+  NICHT der TMDB-`metadata-manual`-Pfad für Filme/Serien). Neue wiederverwendete
+  Primitiven: `AlbumCard` (quadratisches Cover, nicht `VideoCard`) und
+  `MusicTrackRow` (EIN Zeilen-Renderer für Alle-Titel/Suche/Album-Tracklist/
+  Playlist-Inhalt).
+- **Suche fixiert**: `SearchScreen` zeigte Musik-Treffer bisher generisch
+  (kein Bug, da Android nie Album-Bündelung hatte) — rendert Musik-Items
+  jetzt über `MusicTrackRow` und spielt den Treffer direkt ab
+  (`SearchViewModel.playMusicSearchResult`), statt einen nicht-existenten
+  Musik-Detail-Screen zu öffnen.
+- **Navigation**: `HomeScreen`s `onNavigateToLibrary`-Callsite branched jetzt
+  auf `library.kind == "music"` → eigene `Screen.MusicLibrary`-Route (statt
+  die grosse, bereits komplexe `LibraryViewModel`/`LibraryScreen`
+  movies/tv/private-Statemaschine um eine 4. Verzweigung zu erweitern).
+- **Bewusst NICHT gebaut** (Scope-Grenze, User informiert): kein Offline-
+  Sync für Musik (der bestehende `OfflineRepository`/Room-Offline-Pfad ist
+  movies/tv/private-spezifisch) — reine Online-Wiedergabe für's Erste.
+- **Noch nicht auf echtem Gerät getestet** (kein Emulator/Device in dieser
+  Session verfügbar) — `./gradlew :app:assembleDebug` läuft grün, aber
+  Lockscreen-Controls/Benachrichtigung/Hintergrund-Persistenz sollten vor
+  einem Release manuell auf einem echten Gerät verifiziert werden.
 
 ### Stand 1.2.67
 

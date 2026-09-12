@@ -31,7 +31,8 @@ interface GoldfishApi {
         @Query("search") search: String? = null,
         @Query("watched") watched: String? = null,
         @Query("favorite") favorite: String? = null,
-        @Query("bucket") bucket: List<String>? = null
+        @Query("bucket") bucket: List<String>? = null,
+        @Query("genre") genre: List<String>? = null
     ): Response<List<Item>>
 
     @GET("api/items/random")
@@ -143,7 +144,7 @@ interface GoldfishApi {
     suspend fun getCollectionItems(@Path("id") collectionId: Int): Response<List<MediaCollectionPart>>
 
     @GET("api/playlists")
-    suspend fun getPlaylists(): Response<List<Playlist>>
+    suspend fun getPlaylists(@Query("kind") kind: String? = null): Response<List<Playlist>>
 
     @GET("api/playlists/{id}/items")
     suspend fun getPlaylistItems(@Path("id") playlistId: Int): Response<List<Item>>
@@ -153,4 +154,45 @@ interface GoldfishApi {
 
     @DELETE("api/playlists/{id}")
     suspend fun deletePlaylist(@Path("id") playlistId: Int): Response<Unit>
+
+    // --- Musik-Bibliotheken (kind=music) ---
+
+    @GET("api/libraries/{id}/albums")
+    suspend fun getAlbums(
+        @Path("id") libraryId: Int,
+        @Query("genre") genre: List<String>? = null
+    ): Response<List<MusicAlbum>>
+
+    @GET("api/albums/{id}")
+    suspend fun getAlbumDetail(@Path("id") albumId: Int): Response<AlbumDetail>
+
+    @PUT("api/albums/{id}/favorite")
+    suspend fun setAlbumFavorite(
+        @Path("id") albumId: Int,
+        @Body request: SetAlbumFavoriteRequest
+    ): Response<Unit>
+
+    @PUT("api/albums/{id}/metadata")
+    suspend fun updateAlbumMetadata(
+        @Path("id") albumId: Int,
+        @Body request: UpdateMusicAlbumMetadataRequest
+    ): Response<Unit>
+
+    @PUT("api/items/{id}/music-metadata")
+    suspend fun updateMusicItemMetadata(
+        @Path("id") itemId: Int,
+        @Body request: UpdateMusicItemMetadataRequest
+    ): Response<Unit>
+
+    @GET("api/libraries/{id}/genres")
+    suspend fun getGenres(@Path("id") libraryId: Int): Response<List<String>>
+
+    // Activity-Log-Parity fuer den Musik-Player (bisher von KEINEM Client
+    // dieser App aufgerufen, siehe Server-CLAUDE.md "Gerät + Wiedergabe-Ende/
+    // -Fehler" — additiv, nur vom neuen MusicPlaybackService genutzt).
+    @POST("api/playback/{id}/start")
+    suspend fun playbackStart(@Path("id") id: Int): Response<Unit>
+
+    @POST("api/playback/{id}/stop")
+    suspend fun playbackStop(@Path("id") id: Int, @Body request: PlaybackStopRequest): Response<Unit>
 }

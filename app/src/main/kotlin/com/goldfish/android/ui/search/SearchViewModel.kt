@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.goldfish.android.data.SettingsDataStore
 import com.goldfish.android.data.local.LocalItemEntity
 import com.goldfish.android.data.model.Item
+import com.goldfish.android.data.player.MusicPlayerController
 import com.goldfish.android.data.repository.ItemRepository
 import com.goldfish.android.data.repository.LocalLibraryRepository
 import com.goldfish.android.data.repository.OfflineRepository
@@ -38,11 +39,19 @@ class SearchViewModel @Inject constructor(
     private val offlineRepository: OfflineRepository,
     private val localLibraryRepository: LocalLibraryRepository,
     private val settingsDataStore: SettingsDataStore,
-    private val authRepository: com.goldfish.android.data.repository.AuthRepository
+    private val authRepository: com.goldfish.android.data.repository.AuthRepository,
+    val musicPlayerController: MusicPlayerController
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SearchState())
     val state: StateFlow<SearchState> = _state.asStateFlow()
+
+    /** Musik-Suchtreffer werden IMMER als einzelner Titel abgespielt (flache
+     *  Treffer-Liste, nie zu Alben gebuendelt — exakt das Bug-Muster, das
+     *  gleichzeitig im Browser/iOS gefixt wurde, siehe Server-CLAUDE.md). */
+    fun playMusicSearchResult(item: Item) {
+        viewModelScope.launch { musicPlayerController.playQueue(listOf(item), 0) }
+    }
 
     // Debounce: nur die letzte 250ms-Eingabe wird tatsaechlich gesucht
     private var searchJob: Job? = null

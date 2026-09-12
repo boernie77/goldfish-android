@@ -127,6 +127,7 @@ class ItemRepository @Inject constructor(
         watched: String? = null,
         favorite: String? = null,
         bucket: List<String>? = null,
+        genre: List<String>? = null,
         libraryIds: List<Int>? = null   // mehrere Libraries (virtuelle Zusammenlegung)
     ): Result<List<Item>> {
         val effectiveIds = when {
@@ -136,11 +137,11 @@ class ItemRepository @Inject constructor(
         }
         // Bei aktiver Suche kein Cache
         val key = if (!search.isNullOrBlank()) null
-        else "items:${effectiveIds?.joinToString(",")}:$folder:$sort:$dir:$watched:$favorite:${bucket?.joinToString(",")}"
+        else "items:${effectiveIds?.joinToString(",")}:$folder:$sort:$dir:$watched:$favorite:${bucket?.joinToString(",")}:${genre?.joinToString(",")}"
 
         if (key != null) cache.get<List<Item>>(key)?.let { return Result.Success(it) }
         return try {
-            val response = apiClientProvider.api.getItems(effectiveIds, folder, sort, dir, search, watched, favorite, bucket)
+            val response = apiClientProvider.api.getItems(effectiveIds, folder, sort, dir, search, watched, favorite, bucket, genre)
             if (response.isSuccessful) {
                 val data = response.body() ?: emptyList()
                 if (key != null) cache.put(key, data)
@@ -369,13 +370,14 @@ class ItemRepository @Inject constructor(
             } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { Result.Error(e.message ?: "Unbekannter Fehler") }
         }
 
-    suspend fun getPlaylists(): Result<List<Playlist>> = cached("playlists", ttlMs = 30_000L) {
-        try {
-            val response = apiClientProvider.api.getPlaylists()
-            if (response.isSuccessful) Result.Success(response.body() ?: emptyList())
-            else Result.Error("HTTP ${response.code()}")
-        } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { Result.Error(e.message ?: "Unbekannter Fehler") }
-    }
+    suspend fun getPlaylists(kind: String? = null): Result<List<Playlist>> =
+        cached("playlists:${kind.orEmpty()}", ttlMs = 30_000L) {
+            try {
+                val response = apiClientProvider.api.getPlaylists(kind)
+                if (response.isSuccessful) Result.Success(response.body() ?: emptyList())
+                else Result.Error("HTTP ${response.code()}")
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { Result.Error(e.message ?: "Unbekannter Fehler") }
+        }
 
     suspend fun getPlaylistItems(playlistId: Int): Result<List<Item>> =
         cached("playlist:$playlistId", ttlMs = 30_000L) {
@@ -386,9 +388,9 @@ class ItemRepository @Inject constructor(
             } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { Result.Error(e.message ?: "Unbekannter Fehler") }
         }
 
-    suspend fun createPlaylist(name: String): Result<Playlist> {
+    suspend fun createPlaylist(name: String, kind: String = "video"): Result<Playlist> {
         return try {
-            val response = apiClientProvider.api.createPlaylist(CreatePlaylistRequest(name))
+            val response = apiClientProvider.api.createPlaylist(CreatePlaylistRequest(name, kind))
             if (response.isSuccessful) {
                 response.body()?.let {
                     cache.invalidate("playlists")
@@ -449,5 +451,24 @@ class ItemRepository @Inject constructor(
 
     fun getPosterUrl(metadataId: Int, baseUrl: String): String {
         return "${baseUrl.trimEnd('/')}api/poster/metadata/$metadataId"
+    }
+
+    fun getAlbumCoverUrl(albumId: Int, baseUrl: String): String {
+        return "${baseUrl.trimEnd('/')}/api/poster/album/$albumId"
+    }
+
+    /** Activity-Log-Parity, bisher nur vom Musik-Player genutzt (siehe
+     *  MusicPlaybackService) — best-effort, Fehler werden geschluckt. */
+    suspend fun reportPlaybackStart(itemId: Int) {
+        try { apiClientProvider.api.playbackStart(itemId) }
+        catch (e: kotlinx.coroutines.CancellationException) { throw e }
+        catch (_: Exception) { /* best-effort */ }
+    }
+
+    suspend fun reportPlaybackStop(itemId: Int, reason: String, positionSec: Double, durationSec: Double) {
+        try {
+            apiClientProvider.api.playbackStop(itemId, PlaybackStopRequest(reason, positionSec, durationSec))
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+        catch (_: Exception) { /* best-effort */ }
     }
 }

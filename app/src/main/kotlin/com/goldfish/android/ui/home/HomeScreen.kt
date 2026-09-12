@@ -32,6 +32,7 @@ import com.goldfish.android.ui.theme.GoldfishOrange
 fun HomeScreen(
     onNavigateToItem: (Int) -> Unit,
     onNavigateToLibrary: (Int) -> Unit,
+    onNavigateToMusicLibrary: (Int, String) -> Unit = { _, _ -> },
     onNavigateToLocalLibrary: (Int) -> Unit,
     onNavigateToSettings: () -> Unit,
     onLogout: () -> Unit,
@@ -189,6 +190,8 @@ fun HomeScreen(
                                     val mergedServer = viewModel.mergedLibraryIds()
                                     if (mergedServer.size == 2 && lib.id in mergedServer) {
                                         onNavigateToMergedLibrary(mergedServer)
+                                    } else if (lib.kind == "music") {
+                                        onNavigateToMusicLibrary(lib.id, lib.name)
                                     } else {
                                         onNavigateToLibrary(lib.id)
                                     }
@@ -364,6 +367,7 @@ private fun LibraryChip(library: LibraryDisplay, onClick: () -> Unit) {
         "movies" -> "🎬"
         "tv" -> "📺"
         "private" -> "🏠"
+        "music" -> "🎵"
         else -> "📁"
     }
     ElevatedCard(

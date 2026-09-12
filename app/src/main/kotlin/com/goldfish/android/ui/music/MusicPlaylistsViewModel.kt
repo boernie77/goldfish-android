@@ -1,57 +1,47 @@
-package com.goldfish.android.ui.playlists
+package com.goldfish.android.ui.music
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.goldfish.android.data.SettingsDataStore
-import com.goldfish.android.data.api.ApiClientProvider
 import com.goldfish.android.data.model.Item
 import com.goldfish.android.data.model.Playlist
+import com.goldfish.android.data.player.MusicPlayerController
 import com.goldfish.android.data.repository.ItemRepository
 import com.goldfish.android.data.repository.Result
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-data class PlaylistsState(
+data class MusicPlaylistsState(
     val isLoading: Boolean = true,
     val playlists: List<Playlist> = emptyList(),
     val errorMessage: String? = null,
-    val baseUrl: String = "",
-    // Detail view
     val selectedPlaylist: Playlist? = null,
     val playlistItems: List<Item> = emptyList(),
-    val isLoadingItems: Boolean = false,
-    val isAdmin: Boolean = false
+    val isLoadingItems: Boolean = false
 )
 
+/** Separat von PlaylistsViewModel (Video-Playlists) — eigener kleiner
+ *  Master/Detail-Screen, damit der bestehende funktionierende Video-Pfad
+ *  nicht angefasst werden muss. kind="music" wird bei jedem Call explizit
+ *  mitgeschickt. */
 @HiltViewModel
-class PlaylistsViewModel @Inject constructor(
+class MusicPlaylistsViewModel @Inject constructor(
     private val itemRepository: ItemRepository,
-    private val settingsDataStore: SettingsDataStore,
-    private val apiClientProvider: ApiClientProvider
+    val playerController: MusicPlayerController
 ) : ViewModel() {
 
-    private val _state = MutableStateFlow(PlaylistsState())
-    val state: StateFlow<PlaylistsState> = _state.asStateFlow()
+    private val _state = MutableStateFlow(MusicPlaylistsState())
+    val state: StateFlow<MusicPlaylistsState> = _state
 
-    init {
-        viewModelScope.launch {
-            settingsDataStore.settings.collect { settings ->
-                apiClientProvider.configure(settings.serverUrl, settings.cacheSizeBytes)
-                _state.update { it.copy(baseUrl = settings.serverUrl) }
-            }
-        }
-        loadPlaylists()
-    }
+    init { loadPlaylists() }
 
     fun loadPlaylists() {
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true, errorMessage = null) }
-            // "kind=video" seit dem Musik-Playlist-Split explizit — sonst
-            // wuerden neu angelegte Musik-Playlists hier mit auftauchen
-            // (server-seitiger Default nur bei ALTEN, unmigrierten Zeilen).
-            when (val result = itemRepository.getPlaylists(kind = "video")) {
+            when (val result = itemRepository.getPlaylists(kind = "music")) {
                 is Result.Success -> _state.update { it.copy(isLoading = false, playlists = result.data) }
                 is Result.Error -> _state.update { it.copy(isLoading = false, errorMessage = result.message) }
             }
@@ -74,7 +64,7 @@ class PlaylistsViewModel @Inject constructor(
 
     fun createPlaylist(name: String) {
         viewModelScope.launch {
-            when (val result = itemRepository.createPlaylist(name, kind = "video")) {
+            when (itemRepository.createPlaylist(name, kind = "music")) {
                 is Result.Success -> loadPlaylists()
                 is Result.Error -> {}
             }
@@ -88,9 +78,19 @@ class PlaylistsViewModel @Inject constructor(
         }
     }
 
-    fun getItemImageUrl(item: Item): String {
-        val base = _state.value.baseUrl.trimEnd('/')
-        return if (item.metadataId != null) "$base/api/poster/metadata/${item.metadataId}"
-        else "$base/api/thumb/${item.id}"
+    fun playTrack(index: Int) {
+        val tracks = _state.value.playlistItems
+        viewModelScope.launch { playerController.playQueue(tracks, index) }
+    }
+
+    fun toggleFavorite(item: Item) {
+        viewModelScope.launch {
+            when (itemRepository.setFavorite(item.id, !item.favorite)) {
+                is Result.Success -> _state.update { st ->
+                    st.copy(playlistItems = st.playlistItems.map { if (it.id == item.id) it.copy(favorite = !item.favorite) else it })
+                }
+                is Result.Error -> {}
+            }
+        }
     }
 }
