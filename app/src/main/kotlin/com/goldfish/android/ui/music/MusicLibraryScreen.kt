@@ -16,9 +16,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import android.widget.Toast
 import com.goldfish.android.data.model.Item
 import com.goldfish.android.data.model.MusicAlbum
 import com.goldfish.android.ui.components.AlbumCard
@@ -40,6 +42,8 @@ fun MusicLibraryScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     var showGenreDialog by remember { mutableStateOf(false) }
     var showSortDialog by remember { mutableStateOf(false) }
+    var addToPlaylistItem by remember { mutableStateOf<Item?>(null) }
+    val context = LocalContext.current
 
     LaunchedEffect(libraryId) { viewModel.load(libraryId) }
 
@@ -107,7 +111,11 @@ fun MusicLibraryScreen(
                 // Alben gebuendelt (exakt das gleiche Bug-Muster wie zuvor im
                 // Browser/iOS gefixt — siehe Server-CLAUDE.md).
                 state.searchQuery.isNotBlank() || state.displayMode == MusicDisplayMode.ALL_TRACKS -> {
-                    TrackList(items = state.filteredTracks, onFavoriteToggle = viewModel::toggleTrackFavorite) {
+                    TrackList(
+                        items = state.filteredTracks,
+                        onFavoriteToggle = viewModel::toggleTrackFavorite,
+                        onAddToPlaylist = { addToPlaylistItem = it }
+                    ) {
                         viewModel.playTrack(it, state.filteredTracks)
                     }
                 }
@@ -153,12 +161,23 @@ fun MusicLibraryScreen(
             onToggleRecentlyPlayed = { viewModel.toggleRecentlyPlayedFirst() }
         )
     }
+    addToPlaylistItem?.let { item ->
+        AddToPlaylistDialog(
+            itemId = item.id,
+            onDismiss = { addToPlaylistItem = null },
+            onDone = { message ->
+                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                addToPlaylistItem = null
+            }
+        )
+    }
 }
 
 @Composable
 private fun TrackList(
     items: List<Item>,
     onFavoriteToggle: (Item) -> Unit,
+    onAddToPlaylist: (Item) -> Unit,
     onClick: (Item) -> Unit
 ) {
     if (items.isEmpty()) {
@@ -169,7 +188,12 @@ private fun TrackList(
     }
     LazyColumn {
         items(items, key = { it.id }) { item ->
-            MusicTrackRow(item = item, onClick = { onClick(item) }, onFavoriteToggle = onFavoriteToggle)
+            MusicTrackRow(
+                item = item,
+                onClick = { onClick(item) },
+                onFavoriteToggle = onFavoriteToggle,
+                onAddToPlaylist = onAddToPlaylist
+            )
         }
     }
 }

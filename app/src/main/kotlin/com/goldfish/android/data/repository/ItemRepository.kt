@@ -400,6 +400,21 @@ class ItemRepository @Inject constructor(
         } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { Result.Error(e.message ?: "Unbekannter Fehler") }
     }
 
+    /** Fuegt ein Item einer Playlist hinzu. `Result.Success(true)` = neu
+     *  hinzugefuegt, `Result.Success(false)` = war schon drin (kein Fehler,
+     *  Server-Konvention, Aufrufer zeigt dann "bereits enthalten"). */
+    suspend fun addPlaylistItem(playlistId: Int, itemId: Int): Result<Boolean> {
+        return try {
+            val response = apiClientProvider.api.addPlaylistItem(playlistId, AddPlaylistItemRequest(itemId))
+            if (response.isSuccessful) {
+                cache.invalidate("playlist:$playlistId")
+                cache.invalidate("playlists")
+                Result.Success(response.body()?.added ?: false)
+            } else Result.Error("HTTP ${response.code()}")
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+        catch (e: Exception) { Result.Error(e.message ?: "Unbekannter Fehler") }
+    }
+
     suspend fun deletePlaylist(playlistId: Int): Result<Unit> {
         return try {
             val response = apiClientProvider.api.deletePlaylist(playlistId)

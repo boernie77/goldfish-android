@@ -284,6 +284,16 @@ data class CreatePlaylistRequest(
     val kind: String = "video"
 )
 
+@JsonClass(generateAdapter = true)
+data class AddPlaylistItemRequest(
+    val itemId: Int
+)
+
+@JsonClass(generateAdapter = true)
+data class AddPlaylistItemResponse(
+    val added: Boolean = false
+)
+
 // --- Musik-Bibliotheken (kind=music) ---
 
 @JsonClass(generateAdapter = true)

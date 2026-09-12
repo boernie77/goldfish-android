@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -37,7 +38,8 @@ fun MusicTrackRow(
     showTrackNo: Boolean = false,
     isCurrent: Boolean = false,
     onClick: () -> Unit,
-    onFavoriteToggle: ((Item) -> Unit)? = null
+    onFavoriteToggle: ((Item) -> Unit)? = null,
+    onAddToPlaylist: ((Item) -> Unit)? = null
 ) {
     Row(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 8.dp, horizontal = 12.dp),
@@ -81,6 +83,16 @@ fun MusicTrackRow(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 8.dp)
         )
+        if (onAddToPlaylist != null) {
+            IconButton(onClick = { onAddToPlaylist(item) }, modifier = Modifier.size(32.dp)) {
+                Icon(
+                    imageVector = Icons.Filled.PlaylistAdd,
+                    contentDescription = "Zu Playlist hinzufuegen",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
         if (onFavoriteToggle != null) {
             IconButton(onClick = { onFavoriteToggle(item) }, modifier = Modifier.size(32.dp)) {
                 Icon(

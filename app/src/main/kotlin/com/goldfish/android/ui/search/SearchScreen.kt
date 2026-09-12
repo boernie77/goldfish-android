@@ -17,16 +17,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.widget.Toast
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import com.goldfish.android.data.local.LocalItemEntity
 import com.goldfish.android.data.model.Item
+import com.goldfish.android.ui.music.AddToPlaylistDialog
 import com.goldfish.android.ui.theme.GoldfishOrange
 
 /** Globale Suche ueber Server-Libs, Offline-Downloads und lokale Libs.
@@ -41,6 +44,8 @@ fun SearchScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val keyboard = LocalSoftwareKeyboardController.current
+    var addToPlaylistItem by remember { mutableStateOf<Item?>(null) }
+    val context = LocalContext.current
 
     Scaffold(
         topBar = {
@@ -120,7 +125,8 @@ fun SearchScreen(
                         if (item.musicAlbumId != null) {
                             com.goldfish.android.ui.components.MusicTrackRow(
                                 item = item,
-                                onClick = { viewModel.playMusicSearchResult(item) }
+                                onClick = { viewModel.playMusicSearchResult(item) },
+                                onAddToPlaylist = { addToPlaylistItem = it }
                             )
                         } else {
                             ServerResultRow(item, state.baseUrl) { onOpenServerItem(item.id) }
@@ -141,6 +147,16 @@ fun SearchScreen(
                 }
             }
         }
+    }
+    addToPlaylistItem?.let { item ->
+        AddToPlaylistDialog(
+            itemId = item.id,
+            onDismiss = { addToPlaylistItem = null },
+            onDone = { message ->
+                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                addToPlaylistItem = null
+            }
+        )
     }
 }
 

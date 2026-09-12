@@ -22,8 +22,8 @@ android {
         applicationId = "com.goldfish.android"
         minSdk = 26
         targetSdk = 36
-        versionCode = 104
-        versionName = "1.2.72"
+        versionCode = 106
+        versionName = "1.3.0"
         // libVLC ist riesig (35MB+ pro ABI). Nur arm64-v8a + armeabi-v7a
         // bauen — deckt > 99% der Android-Geraete ab (alle modernen
         // Tablets, Phones) und vermeidet x86_64-Konflikte die zu Crashes

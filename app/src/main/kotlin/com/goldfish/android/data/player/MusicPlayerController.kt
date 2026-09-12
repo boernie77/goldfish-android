@@ -31,7 +31,9 @@ data class MusicPlayerUiState(
     val durationMs: Long = 0L,
     val queue: List<Item> = emptyList(),
     val queueIndex: Int = 0,
-    val shuffleEnabled: Boolean = false
+    val shuffleEnabled: Boolean = false,
+    // Player.REPEAT_MODE_OFF (0) | REPEAT_MODE_ONE (1) | REPEAT_MODE_ALL (2)
+    val repeatMode: Int = Player.REPEAT_MODE_OFF
 )
 
 /**
@@ -111,6 +113,10 @@ class MusicPlayerController @Inject constructor(
             override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
                 _uiState.value = _uiState.value.copy(shuffleEnabled = shuffleModeEnabled)
             }
+
+            override fun onRepeatModeChanged(repeatMode: Int) {
+                _uiState.value = _uiState.value.copy(repeatMode = repeatMode)
+            }
         })
     }
 
@@ -187,5 +193,24 @@ class MusicPlayerController @Inject constructor(
     suspend fun toggleShuffle() {
         val mc = ensureConnected() ?: return
         mc.shuffleModeEnabled = !mc.shuffleModeEnabled
+    }
+
+    /** Zyklus AUS → ALLE → EINZELN → AUS, wie bei den meisten Musik-Playern. */
+    suspend fun toggleRepeatMode() {
+        val mc = ensureConnected() ?: return
+        mc.repeatMode = when (mc.repeatMode) {
+            Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
+            Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
+            else -> Player.REPEAT_MODE_OFF
+        }
+    }
+
+    /** Springt direkt zu einem Titel in der aktuellen Warteschlange (Tap auf
+     *  einen Eintrag in der Queue-Ansicht des Now-Playing-Screens). */
+    suspend fun skipToQueueIndex(index: Int) {
+        val mc = ensureConnected() ?: return
+        if (index !in 0 until mc.mediaItemCount) return
+        mc.seekTo(index, 0L)
+        mc.play()
     }
 }

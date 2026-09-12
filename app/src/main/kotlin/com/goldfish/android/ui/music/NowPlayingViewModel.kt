@@ -31,5 +31,7 @@ class NowPlayingViewModel @Inject constructor(
     fun skipNext() { viewModelScope.launch { playerController.skipNext() } }
     fun skipPrevious() { viewModelScope.launch { playerController.skipPrevious() } }
     fun toggleShuffle() { viewModelScope.launch { playerController.toggleShuffle() } }
+    fun toggleRepeatMode() { viewModelScope.launch { playerController.toggleRepeatMode() } }
     fun seekTo(posMs: Long) { viewModelScope.launch { playerController.seekTo(posMs) } }
+    fun skipToQueueIndex(index: Int) { viewModelScope.launch { playerController.skipToQueueIndex(index) } }
 }

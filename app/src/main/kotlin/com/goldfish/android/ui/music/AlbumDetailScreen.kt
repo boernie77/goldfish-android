@@ -18,10 +18,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import android.widget.Toast
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
+import com.goldfish.android.data.model.Item
 import com.goldfish.android.ui.components.MusicTrackRow
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -34,6 +37,8 @@ fun AlbumDetailScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     var showEditAlbum by remember { mutableStateOf(false) }
     var editTrackId by remember { mutableStateOf<Int?>(null) }
+    var addToPlaylistItem by remember { mutableStateOf<Item?>(null) }
+    val context = LocalContext.current
 
     LaunchedEffect(albumId) { viewModel.load(albumId) }
 
@@ -97,7 +102,8 @@ fun AlbumDetailScreen(
                             item = track,
                             showTrackNo = true,
                             onClick = { viewModel.playTrack(index) },
-                            onFavoriteToggle = { viewModel.toggleTrackFavorite(track.id, track.favorite) }
+                            onFavoriteToggle = { viewModel.toggleTrackFavorite(track.id, track.favorite) },
+                            onAddToPlaylist = { addToPlaylistItem = it }
                         )
                         if (state.isAdmin) {
                             TextButton(onClick = { editTrackId = track.id }, modifier = Modifier.padding(start = 40.dp)) {
@@ -130,6 +136,16 @@ fun AlbumDetailScreen(
             onSave = { title, artist, album, trackNo, genre ->
                 viewModel.saveTrackMetadata(trackToEdit.id, title, artist, album, trackNo, genre)
                 editTrackId = null
+            }
+        )
+    }
+    addToPlaylistItem?.let { item ->
+        AddToPlaylistDialog(
+            itemId = item.id,
+            onDismiss = { addToPlaylistItem = null },
+            onDone = { message ->
+                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                addToPlaylistItem = null
             }
         )
     }

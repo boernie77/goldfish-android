@@ -134,6 +134,24 @@ volle Herleitung/Exploration.
   Session verfügbar) — `./gradlew :app:assembleDebug` läuft grün, aber
   Lockscreen-Controls/Benachrichtigung/Hintergrund-Persistenz sollten vor
   einem Release manuell auf einem echten Gerät verifiziert werden.
+- **Nachgezogene Parität (gleicher Tag, versionCode 106, 1.3.0):** drei beim
+  ersten Durchgang übersehene iOS-Features ergänzt.
+  - **„Zu Playlist hinzufügen"** (`AddToPlaylistDialog`/`AddToPlaylistViewModel`,
+    neuer Server-Endpoint-Wrapper `ItemRepository.addPlaylistItem` →
+    `POST /api/playlists/{id}/items`) — existierte in der App bis dahin
+    **für gar keine** Bibliothek (auch Video-Playlists hatten diesen Button
+    nie). Neuer `PlaylistAdd`-Button in `MusicTrackRow`, verdrahtet in
+    `AlbumDetailScreen`, `MusicLibraryScreen` (Alle-Titel/Suche-Treffer) und
+    `SearchScreen` (globale Suche). Dialog erlaubt bestehende Musik-Playlist
+    wählen ODER direkt eine neue anlegen + Titel hineinlegen.
+  - **Warteschlange im Now-Playing-Screen**: `MusicPlayerUiState.queue` wurde
+    zwar schon gehalten, aber nie angezeigt — `NowPlayingScreen` zeigt jetzt
+    die volle Queue unter den Transport-Controls, aktueller Titel hervorgehoben,
+    Tap springt direkt dorthin (`MusicPlayerController.skipToQueueIndex`,
+    `mc.seekTo(index, 0L)`).
+  - **Repeat-Modus-Umschalter**: `MusicPlayerController.toggleRepeatMode()`
+    zyklt AUS→ALLE→EINZELN (Media3 `Player.repeatMode`), neuer Button in
+    `NowPlayingScreen` (Repeat/RepeatOne-Icon je nach Modus).
 
 ### Stand 1.2.67
 

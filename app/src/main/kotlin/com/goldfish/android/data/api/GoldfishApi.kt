@@ -149,6 +149,12 @@ interface GoldfishApi {
     @GET("api/playlists/{id}/items")
     suspend fun getPlaylistItems(@Path("id") playlistId: Int): Response<List<Item>>
 
+    @POST("api/playlists/{id}/items")
+    suspend fun addPlaylistItem(
+        @Path("id") playlistId: Int,
+        @Body request: AddPlaylistItemRequest
+    ): Response<AddPlaylistItemResponse>
+
     @POST("api/playlists")
     suspend fun createPlaylist(@Body request: CreatePlaylistRequest): Response<Playlist>
 
