@@ -15,6 +15,9 @@ import com.goldfish.android.data.repository.Result
 import com.goldfish.android.data.trickplay.TrickplayFrame
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -54,6 +57,24 @@ class PlayerViewModel @Inject constructor(
 
     private val _state = MutableStateFlow(PlayerState())
     val state: StateFlow<PlayerState> = _state.asStateFlow()
+
+    // User-Frage 2026-09-14: "Wir haben heute Fehler in der iOS behoben. Gelten
+    // die auch für Android?" — Untersuchung ergab: der Music-Player
+    // (MusicPlaybackService) meldet Start/Stop bereits korrekt bei jedem
+    // Titelwechsel, aber der VIDEO-Player hier rief `reportPlaybackStart`/
+    // `reportPlaybackStop` bis dahin NIRGENDS auf — ein noch grösseres Loch als
+    // der iOS-Bug von heute (dort fehlte der Stop-Report nur bei Next/Prev/
+    // Shuffle, hier komplett). Serverseitige Transcode-Sessions blieben dadurch
+    // bis zu 30 Min. aktiv, unabhängig vom `StopAllForItem`/`stopSuppressWindow`-
+    // Fix von heute im Server-Repo, der ja einen Stop-Report voraussetzt.
+    // `onNextRandom` (siehe Navigation.kt) navigiert bei jedem Weiter-Klick zu
+    // einer NEUEN Route mit `popUpTo(...){inclusive=true}` — anders als bei
+    // Apples PlayerView (wiederverwendete View-Instanz) bekommt hier JEDE
+    // Wiedergabe ihre eigene ViewModel-Instanz, `onCleared()` ist also der
+    // richtige, zuverlässige Ort für den Stop-Report (feuert bei Zurück-
+    // Navigation UND bei jedem Weiter/Zufall-Wechsel).
+    private var serverPlaybackReported = false
+    private var lastKnownPositionMs = 0L
 
     init {
         viewModelScope.launch {
@@ -143,6 +164,12 @@ class PlayerViewModel @Inject constructor(
                             selectedSubtitleKey = "off"
                         )
                     }
+                    // Nur im Server-Streaming-Zweig (nicht bei `download != null`
+                    // oben, der early-returned) — lokale Offline-Wiedergabe hat
+                    // keine Server-Session, die gemeldet werden müsste.
+                    serverPlaybackReported = true
+                    lastKnownPositionMs = resumeMs
+                    launch { itemRepository.reportPlaybackStart(itemId) }
                 }
                 is Result.Error -> {
                     _state.update {
@@ -179,6 +206,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun saveResumePosition(positionMs: Long) {
+        lastKnownPositionMs = positionMs
         val itemId = _state.value.item?.id ?: return
         val durationMs = (_state.value.item?.durationSec ?: 0.0) * 1000
         // Only save if not nearly at the end (> 95%)
@@ -254,6 +282,24 @@ class PlayerViewModel @Inject constructor(
                 "Transcode: ${p?.label ?: profile}"
             }
             else -> info.mode
+        }
+    }
+
+    /** Meldet das Ende der Server-Wiedergabe, sobald diese ViewModel-Instanz
+     *  zerstört wird — sowohl bei Zurück-Navigation als auch bei jedem
+     *  Weiter/Zufall-Wechsel (siehe Kommentar bei `serverPlaybackReported`
+     *  oben). `viewModelScope` ist zu diesem Zeitpunkt bereits storniert,
+     *  deshalb ein eigener, kurzlebiger Scope für den Fire-and-forget-Call —
+     *  gleiches "best effort"-Muster wie `ItemRepository.reportPlaybackStop`. */
+    override fun onCleared() {
+        super.onCleared()
+        if (serverPlaybackReported) {
+            val itemId = _state.value.item?.id ?: return
+            val positionSec = lastKnownPositionMs / 1000.0
+            val durationSec = _state.value.item?.durationSec ?: 0.0
+            CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+                itemRepository.reportPlaybackStop(itemId, "closed", positionSec, durationSec)
+            }
         }
     }
 }
