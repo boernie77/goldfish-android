@@ -215,7 +215,7 @@ private fun TabletDetailLayout(
                         .clip(RoundedCornerShape(8.dp))
                 )
             }
-            FileInfoBlock(item = item)
+            FileInfoBlock(item = item, state = state)
         }
 
         // Right: title, meta, actions
@@ -329,7 +329,7 @@ private fun PhoneDetailLayout(
             Spacer(Modifier.height(4.dp))
             HorizontalDivider()
             Spacer(Modifier.height(4.dp))
-            FileInfoBlock(item = item)
+            FileInfoBlock(item = item, state = state)
             Spacer(Modifier.height(16.dp))
         }
     }
@@ -558,13 +558,28 @@ private fun ActionButtons(
 }
 
 @Composable
-private fun FileInfoBlock(item: Item) {
+private fun FileInfoBlock(item: Item, state: DetailState) {
     Text(
         text = "Datei-Info",
         style = MaterialTheme.typography.labelMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant
     )
     Spacer(Modifier.height(2.dp))
+    // User-Wunsch 2026-09-14: "wenn ein Video heruntergeladen worden ist, soll auf
+    // der Infoseite stehen, wie die Auflösung des Downloads ist, und die Größe" —
+    // eigene Zeile statt die obigen item.width/height/sizeBytes wiederzuverwenden,
+    // weil ein Download ("Optimierte Downloads") von der Serverdatei abweichen kann.
+    if (state.isDownloaded) {
+        val sizeText = state.downloadSizeBytes?.takeIf { it > 0 }?.let { formatSize(it) }
+        val parts = listOfNotNull(state.downloadResolutionLabel, sizeText)
+        if (parts.isNotEmpty()) {
+            Text(
+                text = "Download: ${parts.joinToString(" · ")}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
     if (item.width > 0 && item.height > 0) {
         Text(
             text = "Auflösung: ${item.width}×${item.height}",

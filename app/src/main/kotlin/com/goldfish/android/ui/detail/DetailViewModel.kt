@@ -13,8 +13,10 @@ import com.goldfish.android.data.repository.ItemRepository
 import com.goldfish.android.data.repository.Result
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import javax.inject.Inject
 
@@ -24,6 +26,14 @@ data class DetailState(
     val errorMessage: String? = null,
     val baseUrl: String = "",
     val isDownloaded: Boolean = false,
+    // User-Wunsch 2026-09-14: "wenn ein Video heruntergeladen worden ist, soll auf
+    // der Infoseite stehen, wie die Auflösung des Downloads ist, und die Größe" —
+    // die Werte oben in FileInfoBlock (item.width/height/sizeBytes) beschreiben die
+    // ORIGINALDATEI auf dem Server, ein Download kann davon abweichen. Größe kommt
+    // direkt aus der Room-Zeile, Auflösung wird per MediaMetadataRetriever aus der
+    // lokalen Datei gelesen (dort nicht gespeichert).
+    val downloadSizeBytes: Long? = null,
+    val downloadResolutionLabel: String? = null,
     val isDownloading: Boolean = false,
     val downloadProgress: Float = 0f,
     val downloadError: String? = null,
@@ -118,7 +128,19 @@ class DetailViewModel @Inject constructor(
 
             // Check if already downloaded
             val downloadEntry = downloadRepository.getDownload(itemId)
-            _state.update { it.copy(isDownloaded = downloadEntry != null) }
+            _state.update {
+                it.copy(
+                    isDownloaded = downloadEntry != null,
+                    downloadSizeBytes = downloadEntry?.fileSize,
+                    downloadResolutionLabel = null
+                )
+            }
+            if (downloadEntry != null) {
+                val label = withContext(Dispatchers.IO) {
+                    resolutionLabelForFile(downloadEntry.localPath)
+                }
+                _state.update { it.copy(downloadResolutionLabel = label) }
+            }
 
             // Item-Quelle: Server zuerst (try/catch im Repo faengt Netz-
             // Fehler ab), sonst Room-Cache. Damit funktioniert Detail mit
@@ -280,5 +302,34 @@ class DetailViewModel @Inject constructor(
             ""
         }
         return if (url.isEmpty()) url else imageCache.preferLocal(url)
+    }
+
+    /// Liest die tatsächliche Auflösung der heruntergeladenen Datei per
+    /// `MediaMetadataRetriever` — Room speichert für Downloads nur `fileSize`,
+    /// keine Auflösung, und die kann seit "Optimierte Downloads" (Server) von der
+    /// Original-Auflösung des Items abweichen. Gleiche Bucket-Formel wie
+    /// `variantResLabel`/`resolutionLabel` an anderer Stelle in der App. Läuft
+    /// blockierend (MediaMetadataRetriever hat keine Coroutine-API) — Aufrufer
+    /// muss das auf Dispatchers.IO schalten.
+    private fun resolutionLabelForFile(path: String): String? {
+        val retriever = android.media.MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(path)
+            val width = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: 0
+            val height = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: 0
+            if (width <= 0 || height <= 0) return null
+            val effective = maxOf(height, (width * 9.0 / 16.0).toInt())
+            when {
+                effective >= 2160 -> "4K"
+                effective >= 1440 -> "2K"
+                effective >= 1080 -> "1080p"
+                effective >= 720 -> "720p"
+                else -> "${effective}p"
+            }
+        } catch (e: Exception) {
+            null
+        } finally {
+            retriever.release()
+        }
     }
 }
