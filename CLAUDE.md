@@ -65,6 +65,36 @@ Konvention" — nicht ändern, sonst stille App-Bugs:
 
 ## Feature-/Bugfix-Chronik
 
+### 🔴→✅ Video-Player meldete nie Wiedergabe-Start/-Ende (gefixt 2026-09-14)
+
+User-Frage: "Wir haben heute Fehler in der iOS behoben. Gelten die auch für
+Android?" — Untersuchung ergab zwei unterschiedliche Befunde:
+- **`MusicPlaybackService`** meldet Start/Stop bereits korrekt bei jedem
+  Titelwechsel (`onMediaItemTransition` ruft `reportStop` fürs alte Item
+  VOR `reportStart` fürs neue) — der iOS-Bug (fehlender Stop-Report bei
+  Next/Prev/Shuffle) betraf Android-Musik NICHT.
+- **`PlayerViewModel`** (Video) rief `reportPlaybackStart`/`reportPlaybackStop`
+  bis dahin an KEINER Stelle auf — ein noch größeres Loch als der iOS-Bug
+  (dort fehlte der Stop-Report nur bei bestimmten Übergängen, hier
+  vollständig). Serverseitige Transcode-Sessions blieben dadurch bis zu
+  30 Min. mit voller Last aktiv (siehe `StopAllForItem`/`stopSuppressWindow`
+  im Server-Repo, CLAUDE.md „Playback" — der Fix dort setzt einen
+  Stop-Report voraus, den es hier nie gab).
+- Fix: Start wird jetzt direkt nach erfolgreichem `getPlayback()` gemeldet
+  (nur im Server-Streaming-Zweig, nicht bei lokalen Downloads —
+  `serverPlaybackReported`-Flag). Stop in `onCleared()`. **Wichtiger
+  Architektur-Unterschied zu Apples `PlayerView`:** dort wird beim
+  Next/Prev/Shuffle dieselbe View-Instanz wiederverwendet (deshalb musste
+  `teardown()` selbst den Stop melden) — auf Android navigiert
+  `onNextRandom` (`Navigation.kt`) zu einer NEUEN Route mit
+  `popUpTo(...){inclusive=true}`, wodurch die alte `PlayerViewModel`-Instanz
+  über Hilt zerstört wird. `onCleared()` ist hier also der EINE zuverlässige
+  Ort, der sowohl echtes Zurück-Navigieren als auch jeden Titelwechsel
+  abdeckt — kein Pendant zu Apples Mehrfach-Aufrufstellen-Problem nötig.
+  `viewModelScope` ist beim `onCleared()`-Aufruf schon storniert, deshalb
+  ein eigener kurzlebiger `CoroutineScope(SupervisorJob() + Dispatchers.IO)`
+  für den Fire-and-forget-Call.
+
 ### Download-Auflösung + -Größe im Detail-Screen (seit 2026-09-14)
 
 User-Wunsch (plattformübergreifend, auch Mac/iOS/tvOS/Linux): "wenn ein
