@@ -65,6 +65,24 @@ Konvention" — nicht ändern, sonst stille App-Bugs:
 
 ## Feature-/Bugfix-Chronik
 
+### Download-Auflösung + -Größe im Detail-Screen (seit 2026-09-14)
+
+User-Wunsch (plattformübergreifend, auch Mac/iOS/tvOS/Linux): "wenn ein
+Video heruntergeladen worden ist, soll auf der Infoseite des Filmes stehen,
+wie die Auflösung des Downloads ist, und die Größe" — die bestehende
+`FileInfoBlock`-Anzeige (`item.width/height/sizeBytes`) beschreibt die
+Server-Originaldatei, die seit "Optimierte Downloads" davon abweichen kann.
+`DetailState` bekam `downloadSizeBytes`/`downloadResolutionLabel`; Größe
+kommt direkt aus `DownloadEntity.fileSize` (Room), Auflösung wird per
+`MediaMetadataRetriever` (blockierend, deshalb `withContext(Dispatchers.IO)`
+in `DetailViewModel.load()`) aus der lokalen Datei gelesen — Room speichert
+dafür kein Feld. Gleiche Bucket-Formel wie `variantResLabel`/
+`resolutionLabel` an anderer Stelle in der App (Formel bewusst dupliziert,
+kein gemeinsamer Helper — Konvention in dieser Codebasis, siehe die drei
+anderen Fundstellen). Neue Zeile "Download: <Auflösung> · <Größe>" in
+`FileInfoBlock` (jetzt mit `state: DetailState`-Parameter, beide Aufrufer
+— Phone- und Tablet-Layout — angepasst).
+
 ### Musik-Bibliotheken (kind=music), seit 2026-09-12 — volle Parität zu iOS
 
 Ausgangspunkt: User-Report "Musiktitel-Suche findet nichts" auf iOS/Browser
