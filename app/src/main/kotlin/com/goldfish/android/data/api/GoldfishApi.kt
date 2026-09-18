@@ -201,4 +201,20 @@ interface GoldfishApi {
 
     @POST("api/playback/{id}/stop")
     suspend fun playbackStop(@Path("id") id: Int, @Body request: PlaybackStopRequest): Response<Unit>
+
+    // "Nächste Folge automatisch starten" — die Reihenfolge (Staffelwechsel,
+    // Doppelfolgen, Auflösungsvarianten) entscheidet der SERVER
+    // (store.NextEpisodeCandidates, siehe Server-Repo api/playback_next.go).
+    // Antwort: {"next": <Item>} oder {"next": null} — letzteres ist der
+    // Normalfall "letzte Folge der Serie", kein Fehler (kein 404).
+    @GET("api/items/{id}/next-episode")
+    suspend fun getNextEpisode(@Path("id") id: Int): Response<NextEpisodeResponse>
+
+    // Pro-Konto-Wiedergabe-Einstellungen (serverseitig in user_settings, damit
+    // die Einstellung auch auf dem nächsten Gerät gilt). Default: AUS.
+    @GET("api/playback/preferences")
+    suspend fun getPlaybackPreferences(): Response<PlaybackPreferences>
+
+    @PUT("api/playback/preferences")
+    suspend fun setPlaybackPreferences(@Body request: PlaybackPreferences): Response<Unit>
 }

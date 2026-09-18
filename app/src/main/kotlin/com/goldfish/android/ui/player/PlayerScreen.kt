@@ -123,6 +123,7 @@ fun PlayerScreen(
                     subtitleOptions = state.subtitleOptions,
                     selectedSubtitleKey = state.selectedSubtitleKey,
                     onPositionChanged = viewModel::saveResumePosition,
+                    onEnded = { viewModel.onPlaybackEnded() },
                     onNextRandom = onNextRandom,
                     onSettingsClick = { showQualityMenu = true },
                     onControllerVisibilityChanged = { controllerVisible = it },
@@ -349,6 +350,88 @@ fun PlayerScreen(
                         }
                     }
                 }
+
+                // "Nächste Folge automatisch starten" (User-Wunsch 2026-09-18):
+                // Hinweis-Overlay mit 10-Sekunden-Countdown am Ende einer
+                // Serienfolge. Erscheint NUR, wenn der Pro-Konto-Schalter aktiv
+                // ist UND der Server eine nächste Folge kennt — beides prüft
+                // PlayerViewModel.onPlaybackEnded(), hier wird nur gerendert.
+                // "Jetzt abspielen"/Countdown-Ablauf wechseln IN-PLACE auf die
+                // nächste Folge (kein neuer Navigations-Eintrag), "Abbrechen"
+                // lässt die Wiedergabe am Ende stehen = bisheriges Verhalten.
+                // Bewusst als letztes Kind des Box-Branches → liegt über allen
+                // anderen Overlays (Trickplay, Controls).
+                if (state.showNextEpisodeOverlay) {
+                    NextEpisodeOverlay(
+                        title = state.nextEpisode?.displayTitle ?: "Nächste Folge",
+                        secondsLeft = state.nextEpisodeCountdown,
+                        onPlayNow = { viewModel.startNextEpisode() },
+                        onCancel = { viewModel.cancelNextEpisode() }
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Hinweis-Overlay "Nächste Folge" mit Countdown und den Knöpfen
+ * "Jetzt abspielen" / "Abbrechen" — Pendant zu #nextEpisodeOverlay in
+ * player.js/index.html.
+ */
+@Composable
+private fun NextEpisodeOverlay(
+    title: String,
+    secondsLeft: Int,
+    onPlayNow: () -> Unit,
+    onCancel: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0x99000000)),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            modifier = Modifier
+                .widthIn(max = 380.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color(0xE6111111))
+                .padding(20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = "Nächste Folge",
+                style = MaterialTheme.typography.labelLarge.copy(color = GoldfishOrange)
+            )
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color.White
+                ),
+                maxLines = 2,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            )
+            Text(
+                text = "Startet in $secondsLeft s",
+                style = MaterialTheme.typography.bodyMedium.copy(color = Color.White)
+            )
+            Spacer(Modifier.height(4.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = onPlayNow,
+                    colors = ButtonDefaults.buttonColors(containerColor = GoldfishOrange)
+                ) {
+                    Text("Jetzt abspielen")
+                }
+                OutlinedButton(
+                    onClick = onCancel,
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
+                ) {
+                    Text("Abbrechen")
+                }
             }
         }
     }
@@ -364,6 +447,7 @@ private fun GoldfishPlayer(
     subtitleOptions: List<SubtitleOption> = emptyList(),
     selectedSubtitleKey: String = "off",
     onPositionChanged: (Long) -> Unit,
+    onEnded: () -> Unit = {},
     onNextRandom: (() -> Unit)? = null,
     onSettingsClick: () -> Unit = {},
     onControllerVisibilityChanged: (Boolean) -> Unit = {},
@@ -385,8 +469,19 @@ private fun GoldfishPlayer(
     // wurde mit -ss <offset> gestartet, die lokale HLS-Playlist zaehlt aber
     // wieder ab 0. Absolute Position im Film = exoPlayer.currentPosition +
     // virtualOffset. Bei Direct Play / lokalen Dateien bleibt der Wert 0.
-    // remember(playbackUrl): bei neuem Item/Quality-Wechsel zurueck auf 0.
-    val virtualOffset = remember(playbackUrl) { mutableStateOf(0L) }
+    // WICHTIG: die Instanz darf NICHT per remember(playbackUrl) neu erzeugt
+    // werden — der ExoPlayer-Listener und der wrappedPlayer werden nur einmal
+    // gebaut und würden sonst für immer die alte Instanz lesen (falsche
+    // Resume-/Stop-Position nach Qualitätswechsel oder In-Place-Folgenwechsel).
+    // Zurückgesetzt wird stattdessen explizit im LaunchedEffect(playbackUrl).
+    val virtualOffset = remember { mutableStateOf(0L) }
+
+    // Dauer + End-Callback über rememberUpdatedState — MUSS vor dem ExoPlayer
+    // stehen: der Listener wird nur EINMAL erzeugt und liest beim Feuern den
+    // dann aktuellen Wert (totalDurationMs ist initial 0, bevor das Item
+    // geladen ist).
+    val currentTotalDurationMs by rememberUpdatedState(totalDurationMs)
+    val currentOnEnded by rememberUpdatedState(onEnded)
 
     val exoPlayer = remember {
         ExoPlayer.Builder(context).build().apply {
@@ -399,6 +494,26 @@ private fun GoldfishPlayer(
                         onPositionChanged(absPos)
                     }
                 }
+
+                // Natürliches Ende → PlayerViewModel entscheidet, ob der
+                // "Nächste Folge"-Hinweis erscheint (Option AUS → nichts).
+                override fun onPlaybackStateChanged(playbackState: Int) {
+                    if (playbackState != Player.STATE_ENDED) return
+                    // Nur melden, wenn die Wiedergabe WIRKLICH am Ende ist: die
+                    // gewrappte Timeline (DurationOverrideTimeline) macht die
+                    // wachsende Transcode-HLS-Playlist für ExoPlayer
+                    // nicht-dynamisch, STATE_ENDED kann also auch am zuletzt
+                    // produzierten Segment-Rand feuern. Ohne diesen Positions-
+                    // Check erschiene der Hinweis mitten im Film. Toleranz 15 s,
+                    // weil die DB-Dauer (ffprobe der Originaldatei) das Ende des
+                    // fertig produzierten Streams um ein paar Sekunden
+                    // unterschreiten/überschreiten kann — ein Verwerfen des
+                    // echten Endes wäre schlimmer als ein Hinweis in den letzten
+                    // Sekunden.
+                    val absPos = currentPosition + virtualOffset.value
+                    val dur = currentTotalDurationMs
+                    if (dur <= 0 || absPos >= dur - 15_000) currentOnEnded()
+                }
             })
         }
     }
@@ -409,7 +524,7 @@ private fun GoldfishPlayer(
     // Änderung erzeugt und der PlayerView hielte weiterhin den alten — wodurch
     // die Duration-Override nie greifen würde, weil totalDurationMs initial 0
     // ist (bevor das Item geladen ist).
-    val currentTotalDurationMs by rememberUpdatedState(totalDurationMs)
+    // (currentTotalDurationMs steht oben beim ExoPlayer-Listener.)
     val currentOnNext by rememberUpdatedState(onNextRandom)
     val currentSubtitleOptions by rememberUpdatedState(subtitleOptions)
 
@@ -550,7 +665,8 @@ private fun GoldfishPlayer(
             loadHls(if (startSec > 0) startSec else null)
         } else {
             // Direct Play / lokale Datei: ganze Datei per Range verfuegbar,
-            // klassisches seekTo fuer Resume.
+            // klassisches seekTo fuer Resume. Kein ffmpeg-Offset.
+            virtualOffset.value = 0L
             val subConfigs = subtitleOptions.mapNotNull { opt ->
                 val uri = opt.externalUri ?: return@mapNotNull null
                 MediaItem.SubtitleConfiguration.Builder(android.net.Uri.parse(uri))

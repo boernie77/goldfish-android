@@ -33,7 +33,15 @@ data class AppSettings(
     // Leere Menge = Feature deaktiviert. Genau 2 IDs = aktiv.
     val mergedServerLibraryIds: Set<Int> = emptySet(),
     // Zwei lokale (SAF) Bibliotheken zusammenlegen.
-    val mergedLocalLibraryIds: Set<Int> = emptySet()
+    val mergedLocalLibraryIds: Set<Int> = emptySet(),
+    // "Zuletzt gewählte Auflösung merken" (User-Wunsch 2026-09-18) — das
+    // Profil, mit dem zuletzt abgespielt wurde. Es greift AUSSCHLIESSLICH beim
+    // Autoplay-Start der nächsten Folge (siehe PlayerViewModel), NICHT beim
+    // normalen Öffnen eines Titels: sonst würde eine einmal gewählte 480p-Stufe
+    // jeden späteren Film drosseln. Leer = keine Begrenzung ("orig"/auto).
+    // Bewusst NICHT serverseitig: der Server hält nur den Pro-Konto-Schalter
+    // (api/playback/preferences), die Qualität merkt sich der Client.
+    val lastPlaybackProfile: String = ""
 )
 
 enum class CacheSize(val bytes: Long, val label: String) {
@@ -56,6 +64,7 @@ class SettingsDataStore @Inject constructor(
     private val KEY_COMPARE_LIB_IDS = stringSetPreferencesKey("compare_local_lib_ids")
     private val KEY_MERGED_SERVER_LIB_IDS = stringSetPreferencesKey("merged_server_lib_ids")
     private val KEY_MERGED_LOCAL_LIB_IDS  = stringSetPreferencesKey("merged_local_lib_ids")
+    private val KEY_LAST_PLAYBACK_PROFILE = stringPreferencesKey("last_playback_profile")
 
     val settings: Flow<AppSettings> = context.dataStore.data.map { prefs ->
         AppSettings(
@@ -73,8 +82,18 @@ class SettingsDataStore @Inject constructor(
                 .toSet(),
             mergedLocalLibraryIds = (prefs[KEY_MERGED_LOCAL_LIB_IDS] ?: emptySet())
                 .mapNotNull { it.toIntOrNull() }
-                .toSet()
+                .toSet(),
+            lastPlaybackProfile = prefs[KEY_LAST_PLAYBACK_PROFILE] ?: ""
         )
+    }
+
+    /** Merkt sich das zuletzt gewählte Auflösungsprofil (siehe AppSettings.
+     *  lastPlaybackProfile). Leerer String = keine Begrenzung. */
+    suspend fun saveLastPlaybackProfile(profile: String?) {
+        context.dataStore.edit { prefs ->
+            if (profile.isNullOrBlank()) prefs.remove(KEY_LAST_PLAYBACK_PROFILE)
+            else prefs[KEY_LAST_PLAYBACK_PROFILE] = profile
+        }
     }
 
     suspend fun saveCompareLocalLibraryIds(ids: Set<Int>) {

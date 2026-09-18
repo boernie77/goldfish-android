@@ -26,7 +26,12 @@ data class SettingsState(
     val downloadCount: Int = 0,
     val totalDownloadSize: Long = 0,
     val serverLibraries: List<Library> = emptyList(),
-    val localLibraries: List<LocalLibraryEntity> = emptyList()
+    val localLibraries: List<LocalLibraryEntity> = emptyList(),
+    // "Nächste Folge automatisch starten" — Pro-Konto-Schalter auf dem SERVER
+    // (GET/PUT api/playback/preferences, Default AUS). Liegt serverseitig in
+    // user_settings, damit die Einstellung auch auf dem nächsten Gerät gilt.
+    val autoplayNext: Boolean = false,
+    val autoplayNextLoaded: Boolean = false
 )
 
 @HiltViewModel
@@ -69,6 +74,26 @@ class SettingsViewModel @Inject constructor(
             else
                 localLibraryRepository.observeLibraries()
             flow.collect { libs -> _state.update { it.copy(localLibraries = libs) } }
+        }
+        loadAutoplayNext()
+    }
+
+    /** Pro-Konto-Schalter laden (Default AUS bei Fehler/altem Serverstand). */
+    fun loadAutoplayNext() {
+        viewModelScope.launch {
+            val on = itemRepository.getAutoplayNext()
+            _state.update { it.copy(autoplayNext = on, autoplayNextLoaded = true) }
+        }
+    }
+
+    /** Pro-Konto-Schalter setzen — optimistisch, Rollback wenn der Server
+     *  nicht bestätigt (z. B. offline). */
+    fun setAutoplayNext(enabled: Boolean) {
+        _state.update { it.copy(autoplayNext = enabled) }
+        viewModelScope.launch {
+            if (!itemRepository.setAutoplayNext(enabled)) {
+                _state.update { it.copy(autoplayNext = !enabled) }
+            }
         }
     }
 

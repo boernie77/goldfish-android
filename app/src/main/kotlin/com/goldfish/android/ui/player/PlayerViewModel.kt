@@ -17,10 +17,16 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+
+/** Countdown-Länge des „Nächste Folge"-Hinweises in Sekunden — Browser-Parität
+ *  (NEXT_EPISODE_SECONDS in player.js). */
+const val NEXT_EPISODE_SECONDS = 10
 
 data class PlayerState(
     val isLoading: Boolean = true,
@@ -41,7 +47,20 @@ data class PlayerState(
     // Admin-Flag → steuert Sichtbarkeit des Lösch-Buttons im Player.
     val isAdmin: Boolean = false,
     // Wird true nachdem das Item gelöscht wurde → Screen navigiert zurück.
-    val deleted: Boolean = false
+    val deleted: Boolean = false,
+    // --- "Nächste Folge automatisch starten" (Server: api/playback_next.go) ---
+    // Pro-Konto-Schalter vom Server (Default AUS). Ist er aus, passiert am
+    // Folgenende exakt das, was die App bisher tat: die Wiedergabe endet.
+    val autoplayNextEnabled: Boolean = false,
+    // Nächste Folge DERSELBEN Serie (GET api/items/{id}/next-episode).
+    // null = letzte Folge der Serie / kein Serien-Item → kein Hinweis.
+    val nextEpisode: Item? = null,
+    val showNextEpisodeOverlay: Boolean = false,
+    val nextEpisodeCountdown: Int = NEXT_EPISODE_SECONDS,
+    // Zuletzt gewähltes Auflösungsprofil (Persistenz: SettingsDataStore) —
+    // wird NUR beim Autoplay-Start der nächsten Folge angewandt, ein normal
+    // geöffneter Titel startet weiterhin ohne Begrenzung (Browser-Parität).
+    val lastPlaybackProfile: String? = null
 )
 
 @HiltViewModel
@@ -73,108 +92,166 @@ class PlayerViewModel @Inject constructor(
     // Wiedergabe ihre eigene ViewModel-Instanz, `onCleared()` ist also der
     // richtige, zuverlässige Ort für den Stop-Report (feuert bei Zurück-
     // Navigation UND bei jedem Weiter/Zufall-Wechsel).
+    // WICHTIG seit dem Autoplay-Nachfolger (unten): der In-Place-Wechsel zur
+    // nächsten Folge zerstört diese Instanz NICHT — dort meldet
+    // `finishCurrentPlayback()` den Stop-Report (und die Resume-Position) des
+    // alten Items explizit, bevor die neue Folge geladen wird. Pro Item bleibt
+    // es damit bei genau EINER Server-Session (Start + Stop).
     private var serverPlaybackReported = false
     private var lastKnownPositionMs = 0L
+    // Einmal pro Player-Instanz geladen — der Schalter ändert sich während
+    // einer Wiedergabe nicht von selbst.
+    private var autoplayPrefLoaded = false
+    private var nextEpisodeCountdownJob: Job? = null
+    // Item, für das der Nutzer den Hinweis weggeklickt hat. Solange gilt:
+    // kein erneuter Hinweis für dieselbe Folge (Abbrechen = bisheriges
+    // Verhalten, auch wenn ExoPlayer STATE_ENDED nochmals meldet).
+    private var nextEpisodeSuppressedItemId: Int? = null
+    // In-Memory-Spiegel des persistierten Profils (AppSettings.lastPlaybackProfile).
+    private var lastPlaybackProfile: String? = null
 
     init {
         viewModelScope.launch {
             settingsDataStore.settings.collect { settings ->
                 apiClientProvider.configure(settings.serverUrl, settings.cacheSizeBytes)
-                _state.update { it.copy(baseUrl = settings.serverUrl) }
+                lastPlaybackProfile = settings.lastPlaybackProfile.takeIf { it.isNotBlank() }
+                _state.update {
+                    it.copy(baseUrl = settings.serverUrl, lastPlaybackProfile = lastPlaybackProfile)
+                }
             }
         }
     }
 
     fun load(itemId: Int) {
         viewModelScope.launch {
-            val admin = authRepository.getCurrentStatus()?.isAdmin ?: false
-            _state.update { it.copy(isLoading = true, errorMessage = null, trickplayFrames = emptyList(), isAdmin = admin) }
-            // Trickplay parallel im Hintergrund laden — non-blocking, UI startet ohne darauf zu warten
-            launch {
-                val frames = itemRepository.getTrickplayFrames(itemId)
+            // Pro-Konto-Schalter einmal holen (Fehler/alter Serverstand → AUS,
+            // also exakt das bisherige Verhalten).
+            if (!autoplayPrefLoaded) {
+                autoplayPrefLoaded = true
+                val on = itemRepository.getAutoplayNext()
+                _state.update { it.copy(autoplayNextEnabled = on) }
+            }
+            loadItem(itemId, profile = null, skipResume = false)
+        }
+    }
+
+    /**
+     * Lädt ein Item in den laufenden Player-Zustand. Wird sowohl beim Öffnen
+     * des Screens (`load`) als auch beim In-Place-Wechsel zur nächsten Folge
+     * (`switchToNextEpisode`) aufgerufen — deshalb KEIN Navigationswechsel und
+     * keine neue ViewModel-Instanz.
+     *
+     * `profile`: Auflösungsprofil für `GET api/playback/{id}?profile=…`
+     * (null = Auto, wie bisher). `skipResume`: bei der automatisch gestarteten
+     * nächsten Folge wird — wie im Browser (`skipResume: true`) — NICHT an der
+     * alten Position fortgesetzt, die Folge startet von vorn.
+     */
+    private suspend fun loadItem(itemId: Int, profile: String?, skipResume: Boolean) {
+        val admin = authRepository.getCurrentStatus()?.isAdmin ?: false
+        // Neue Folge → ein früheres "Abbrechen" gilt nicht mehr.
+        nextEpisodeSuppressedItemId = null
+        _state.update { it.copy(isLoading = true, errorMessage = null, trickplayFrames = emptyList(), isAdmin = admin) }
+        // Trickplay parallel im Hintergrund laden — non-blocking, UI startet ohne darauf zu warten.
+        // Eigener viewModelScope-Job (loadItem ist eine suspend-Funktion ohne
+        // CoroutineScope-Receiver): das Ergebnis wird verworfen, wenn inzwischen
+        // eine andere Folge läuft (In-Place-Wechsel).
+        viewModelScope.launch {
+            val frames = itemRepository.getTrickplayFrames(itemId)
+            if (_state.value.item?.id == itemId || _state.value.item == null) {
                 _state.update { it.copy(trickplayFrames = frames) }
             }
+        }
 
-            // Check for local download
-            val download = downloadRepository.getDownload(itemId)
+        // Check for local download
+        val download = downloadRepository.getDownload(itemId)
 
-            // Item-Quelle waehlen — bei Offline-Filter ODER vorhandenem Download
-            // OHNE Netz versuchen wir den lokalen Cache. Bei Netz-Fehler fallen
-            // wir auch auf den Cache zurueck (offlineRepository.item).
-            // Item-Quelle: Server zuerst mit try/catch im Repo, sonst Cache.
-            // Bei lokalem Download (download != null) reicht der Cache —
-            // wir spielen ohnehin file://, kein Server noetig.
-            val itemFromServer = (itemRepository.getItem(itemId) as? Result.Success)?.data
-            val itemFromOffline = offlineRepository.item(itemId)
-            val item = itemFromServer ?: itemFromOffline
-            if (item == null) {
-                _state.update {
-                    it.copy(isLoading = false, errorMessage = "Video nicht gefunden")
-                }
-                return@launch
+        // Item-Quelle waehlen — bei Offline-Filter ODER vorhandenem Download
+        // OHNE Netz versuchen wir den lokalen Cache. Bei Netz-Fehler fallen
+        // wir auch auf den Cache zurueck (offlineRepository.item).
+        // Item-Quelle: Server zuerst mit try/catch im Repo, sonst Cache.
+        // Bei lokalem Download (download != null) reicht der Cache —
+        // wir spielen ohnehin file://, kein Server noetig.
+        val itemFromServer = (itemRepository.getItem(itemId) as? Result.Success)?.data
+        val itemFromOffline = offlineRepository.item(itemId)
+        val item = itemFromServer ?: itemFromOffline
+        if (item == null) {
+            _state.update {
+                it.copy(isLoading = false, errorMessage = "Video nicht gefunden")
             }
+            return
+        }
 
-            // Server-seitig als "zuletzt gespielt" markieren — wie der Browser
-            // beim Player-Open. Ohne diesen Call setzt die App nie
-            // last_played_at, und in der App gespielte Videos erscheinen nie in
-            // der Online-Sortierung "Zuletzt gespielt". Fire-and-forget.
-            launch { itemRepository.markPlayed(itemId) }
+        // Server-seitig als "zuletzt gespielt" markieren — wie der Browser
+        // beim Player-Open. Ohne diesen Call setzt die App nie
+        // last_played_at, und in der App gespielte Videos erscheinen nie in
+        // der Online-Sortierung "Zuletzt gespielt". Fire-and-forget.
+        viewModelScope.launch { itemRepository.markPlayed(itemId) }
 
-            val resumePosSec = try { itemRepository.getResumePosition(itemId) } catch (_: Exception) {
-                item.resumePosSec ?: 0.0
+        val resumePosSec = if (skipResume) 0.0 else try {
+            itemRepository.getResumePosition(itemId)
+        } catch (_: Exception) {
+            item.resumePosSec ?: 0.0
+        }
+        val resumeMs = (resumePosSec * 1000).toLong()
+
+        if (download != null) {
+            // Offline-Abspielzeit lokal stempeln → treibt den Offline-Sort
+            // "Zuletzt abgespielt" (Server-last_played_at ist offline nicht da).
+            downloadRepository.markPlayed(itemId)
+            // Play locally — kein Server-Call mehr noetig.
+            _state.update {
+                it.copy(
+                    isLoading = false,
+                    item = item,
+                    localFilePath = download.localPath,
+                    resumePositionMs = resumeMs
+                )
             }
-            val resumeMs = (resumePosSec * 1000).toLong()
-
-            if (download != null) {
-                // Offline-Abspielzeit lokal stempeln → treibt den Offline-Sort
-                // "Zuletzt abgespielt" (Server-last_played_at ist offline nicht da).
-                downloadRepository.markPlayed(itemId)
-                // Play locally — kein Server-Call mehr noetig.
+            return
+        }
+        // Kein Download → Server-Stream noetig (auch wenn offlineOnly an
+        // ist, ist das ein klarer Hinweis dass dieses Item nicht offline
+        // verfuegbar ist; getPlayback() schlaegt ggf. fehl und liefert
+        // eine sinnvolle Fehlermeldung).
+        // Fetch playback info from server
+        when (val pbResult = itemRepository.getPlayback(itemId, null, profile)) {
+            is Result.Success -> {
+                val info = pbResult.data
+                android.util.Log.d("GF-Player",
+                    "item.durationSec=${item.durationSec} " +
+                    "playbackInfo.mode=${info.mode} " +
+                    "playbackInfo.item.durationSec=${info.item?.durationSec} " +
+                    "subtitleStreams=${info.streams?.count { it.type == "subtitle" } ?: 0}")
+                val subOptions = buildSubtitleOptions(info, _state.value.baseUrl, itemId)
                 _state.update {
                     it.copy(
                         isLoading = false,
                         item = item,
-                        localFilePath = download.localPath,
-                        resumePositionMs = resumeMs
+                        playbackInfo = info,
+                        resumePositionMs = resumeMs,
+                        subtitleOptions = subOptions,
+                        selectedSubtitleKey = "off"
                     )
                 }
-                return@launch
-            }
-            // Kein Download → Server-Stream noetig (auch wenn offlineOnly an
-            // ist, ist das ein klarer Hinweis dass dieses Item nicht offline
-            // verfuegbar ist; getPlayback() schlaegt ggf. fehl und liefert
-            // eine sinnvolle Fehlermeldung).
-            // Fetch playback info from server
-            when (val pbResult = itemRepository.getPlayback(itemId)) {
-                is Result.Success -> {
-                    val info = pbResult.data
-                    android.util.Log.d("GF-Player",
-                        "item.durationSec=${item.durationSec} " +
-                        "playbackInfo.mode=${info.mode} " +
-                        "playbackInfo.item.durationSec=${info.item?.durationSec} " +
-                        "subtitleStreams=${info.streams?.count { it.type == "subtitle" } ?: 0}")
-                    val subOptions = buildSubtitleOptions(info, _state.value.baseUrl, itemId)
-                    _state.update {
-                        it.copy(
-                            isLoading = false,
-                            item = item,
-                            playbackInfo = info,
-                            resumePositionMs = resumeMs,
-                            subtitleOptions = subOptions,
-                            selectedSubtitleKey = "off"
-                        )
-                    }
-                    // Nur im Server-Streaming-Zweig (nicht bei `download != null`
-                    // oben, der early-returned) — lokale Offline-Wiedergabe hat
-                    // keine Server-Session, die gemeldet werden müsste.
-                    serverPlaybackReported = true
-                    lastKnownPositionMs = resumeMs
-                    launch { itemRepository.reportPlaybackStart(itemId) }
+                // Nur im Server-Streaming-Zweig (nicht bei `download != null`
+                // oben, der early-returned) — lokale Offline-Wiedergabe hat
+                // keine Server-Session, die gemeldet werden müsste.
+                serverPlaybackReported = true
+                lastKnownPositionMs = resumeMs
+                viewModelScope.launch { itemRepository.reportPlaybackStart(itemId) }
+                // "Zuletzt gewählte Auflösung merken" (Browser-Parität:
+                // state.lastProfile in player.js) — das Profil, mit dem diese
+                // Folge läuft, gilt auch für die automatisch folgende Folge.
+                val effectiveProfile = profile ?: info.profile
+                if (!effectiveProfile.isNullOrBlank()) {
+                    lastPlaybackProfile = effectiveProfile
+                    _state.update { it.copy(lastPlaybackProfile = effectiveProfile) }
+                    viewModelScope.launch { settingsDataStore.saveLastPlaybackProfile(effectiveProfile) }
                 }
-                is Result.Error -> {
-                    _state.update {
-                        it.copy(isLoading = false, errorMessage = pbResult.message)
-                    }
+            }
+            is Result.Error -> {
+                _state.update {
+                    it.copy(isLoading = false, errorMessage = pbResult.message)
                 }
             }
         }
@@ -207,15 +284,22 @@ class PlayerViewModel @Inject constructor(
 
     fun saveResumePosition(positionMs: Long) {
         lastKnownPositionMs = positionMs
-        val itemId = _state.value.item?.id ?: return
-        val durationMs = (_state.value.item?.durationSec ?: 0.0) * 1000
+        val item = _state.value.item ?: return
+        saveResumeForItem(item, positionMs)
+    }
+
+    /** Resume-/Watched-Update für EIN bestimmtes Item. Beim In-Place-Wechsel
+     *  muss das ALTE Item explizit adressiert werden — `saveResumePosition`
+     *  liest `state.item`, das dann schon die neue Folge wäre. */
+    private fun saveResumeForItem(item: Item, positionMs: Long) {
+        val durationMs = (item.durationSec ?: 0.0) * 1000
         // Only save if not nearly at the end (> 95%)
         val shouldMark = durationMs > 0 && positionMs.toDouble() / durationMs > 0.9
         viewModelScope.launch {
             if (shouldMark) {
-                itemRepository.setWatched(itemId, true)
+                itemRepository.setWatched(item.id, true)
             } else {
-                itemRepository.setResume(itemId, positionMs / 1000.0)
+                itemRepository.setResume(item.id, positionMs / 1000.0)
             }
         }
     }
@@ -251,6 +335,12 @@ class PlayerViewModel @Inject constructor(
         val itemId = _state.value.item?.id ?: return
         _state.update { it.copy(selectedMode = mode, selectedProfile = profile, isLoading = true) }
         viewModelScope.launch {
+            // Vom User explizit gewähltes Profil merken — es gilt auch für die
+            // automatisch folgende Folge (siehe switchToNextEpisode).
+            if (!profile.isNullOrBlank()) {
+                lastPlaybackProfile = profile
+                settingsDataStore.saveLastPlaybackProfile(profile)
+            }
             when (val pbResult = itemRepository.getPlayback(itemId, mode, profile)) {
                 is Result.Success -> {
                     _state.update { it.copy(isLoading = false, playbackInfo = pbResult.data) }
@@ -259,6 +349,123 @@ class PlayerViewModel @Inject constructor(
                     _state.update { it.copy(isLoading = false, errorMessage = pbResult.message) }
                 }
             }
+        }
+    }
+
+    // ── "Nächste Folge automatisch starten" ─────────────────────────────────
+    // Browser-Parität (player.js, maybeAutoplayNextEpisode): am Ende einer
+    // Folge wird der Server gefragt, welche Folge als nächste dran wäre, und
+    // bei aktivem Pro-Konto-Schalter ein Hinweis mit Countdown gezeigt. Ohne
+    // Zutun des Users startet nichts; "Abbrechen" lässt die Wiedergabe am
+    // Ende stehen (exakt das bisherige Verhalten).
+
+    /**
+     * Vom PlayerScreen gerufen, wenn ExoPlayer das Ende der aktuellen
+     * Wiedergabe erreicht (Player.STATE_ENDED, abgesichert gegen ein vorzeitiges
+     * Ende der wachsenden Transcode-Playlist — siehe PlayerScreen).
+     *
+     * Fehler und "keine nächste Folge" dürfen das Wiedergabe-Ende NIE stören:
+     * schlimmstenfalls erscheint einfach kein Hinweis.
+     */
+    fun onPlaybackEnded() {
+        val st = _state.value
+        if (st.showNextEpisodeOverlay) return          // Countdown läuft schon
+        if (!st.autoplayNextEnabled) return            // Option AUS → nichts tun
+        val currentId = st.item?.id ?: return
+        if (nextEpisodeSuppressedItemId == currentId) return  // "Abbrechen" → Ruhe
+        viewModelScope.launch {
+            val next = itemRepository.getNextEpisode(currentId)
+            // null = letzte Folge / kein Serien-Item (Server-Normalfall) und
+            // next.id == currentId wäre eine Schleife → kein Overlay, kein Fehler.
+            if (next == null || next.id == currentId) return@launch
+            _state.update {
+                it.copy(
+                    nextEpisode = next,
+                    showNextEpisodeOverlay = true,
+                    nextEpisodeCountdown = NEXT_EPISODE_SECONDS
+                )
+            }
+            startNextEpisodeCountdown()
+        }
+    }
+
+    private fun startNextEpisodeCountdown() {
+        nextEpisodeCountdownJob?.cancel()
+        nextEpisodeCountdownJob = viewModelScope.launch {
+            var left = NEXT_EPISODE_SECONDS
+            while (left > 0) {
+                delay(1000L)
+                left -= 1
+                _state.update { it.copy(nextEpisodeCountdown = left) }
+            }
+            // Countdown abgelaufen → nächste Folge starten (wie "Jetzt abspielen").
+            startNextEpisode()
+        }
+    }
+
+    /** "Abbrechen" — Overlay weg, es startet nichts (bisheriges Verhalten). */
+    fun cancelNextEpisode() {
+        nextEpisodeCountdownJob?.cancel()
+        nextEpisodeCountdownJob = null
+        nextEpisodeSuppressedItemId = _state.value.item?.id
+        _state.update { it.copy(showNextEpisodeOverlay = false, nextEpisode = null) }
+    }
+
+    /** "Jetzt abspielen" bzw. abgelaufener Countdown. */
+    fun startNextEpisode() {
+        val next = _state.value.nextEpisode ?: return
+        nextEpisodeCountdownJob?.cancel()
+        nextEpisodeCountdownJob = null
+        _state.update { it.copy(showNextEpisodeOverlay = false, nextEpisode = null) }
+        viewModelScope.launch { switchToNextEpisode(next) }
+    }
+
+    /**
+     * In-Place-Wechsel auf die nächste Folge: dieselbe ViewModel-Instanz,
+     * derselbe Screen, KEIN neuer Eintrag auf dem Navigationsstapel (kein
+     * `navController.navigate`). `PlayerScreen`/`GoldfishPlayer` erkennen den
+     * Wechsel an der neuen Playback-URL (`LaunchedEffect(playbackUrl)`) und
+     * setzen den vorhandenen ExoPlayer neu auf.
+     *
+     * Vorher wird die ALTE Folge sauber abgeschlossen (Stop-Report + Resume) —
+     * genau eine Server-Session pro Item.
+     */
+    private suspend fun switchToNextEpisode(next: Item) {
+        finishCurrentPlayback()
+        // Reste der alten Folge aus dem State nehmen, damit der Player die neue
+        // Quelle wirklich neu aufsetzt (Modus/Profil gelten ab jetzt für die
+        // neue Folge und werden dort frisch ermittelt).
+        _state.update {
+            it.copy(
+                playbackInfo = null,
+                localFilePath = null,
+                subtitleOptions = emptyList(),
+                selectedSubtitleKey = "off",
+                selectedMode = null,
+                selectedProfile = null,
+                trickplayFrames = emptyList(),
+                errorMessage = null
+            )
+        }
+        // Auflösungsprofil der vorigen Folge übernehmen (Server: ?profile=…);
+        // Resume wird übersprungen — die Folge startet von vorn (Browser-Parität).
+        loadItem(next.id, profile = lastPlaybackProfile, skipResume = true)
+    }
+
+    /** Schliesst die laufende Server-Session des aktuellen Items ab:
+     *  Resume-Position/Watched + EIN Stop-Report. Wird nur beim In-Place-Wechsel
+     *  gebraucht — beim Verlassen des Players erledigt das `onCleared()`. */
+    private suspend fun finishCurrentPlayback() {
+        val item = _state.value.item ?: return
+        saveResumeForItem(item, lastKnownPositionMs)
+        if (serverPlaybackReported) {
+            serverPlaybackReported = false
+            itemRepository.reportPlaybackStop(
+                item.id,
+                "ended",
+                lastKnownPositionMs / 1000.0,
+                item.durationSec ?: 0.0
+            )
         }
     }
 
@@ -293,6 +500,7 @@ class PlayerViewModel @Inject constructor(
      *  gleiches "best effort"-Muster wie `ItemRepository.reportPlaybackStop`. */
     override fun onCleared() {
         super.onCleared()
+        nextEpisodeCountdownJob?.cancel()
         if (serverPlaybackReported) {
             val itemId = _state.value.item?.id ?: return
             val positionSec = lastKnownPositionMs / 1000.0

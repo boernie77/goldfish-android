@@ -486,4 +486,38 @@ class ItemRepository @Inject constructor(
         } catch (e: kotlinx.coroutines.CancellationException) { throw e }
         catch (_: Exception) { /* best-effort */ }
     }
+
+    /** Nächste Folge DERSELBEN Serie — bewusst der Server-Endpoint
+     *  (GET api/items/{id}/next-episode) statt einer clientseitig
+     *  nachgebauten Serien-Hierarchie: Staffelwechsel, Doppelfolgen,
+     *  Auflösungsvarianten und die Bibliotheks-/Altersfreigabe-Prüfung
+     *  entscheidet der Server (store.NextEpisodeCandidates).
+     *  `null` = letzte Folge der Serie, kein Serien-Item oder ein Fehler —
+     *  in allen drei Fällen zeigt der Player schlicht keinen Hinweis. */
+    suspend fun getNextEpisode(itemId: Int): Item? {
+        return try {
+            val response = apiClientProvider.api.getNextEpisode(itemId)
+            if (response.isSuccessful) response.body()?.next else null
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+        catch (_: Exception) { null }
+    }
+
+    /** Pro-Konto-Schalter "Nächste Folge automatisch starten". Fehler (z. B.
+     *  alter Serverstand ohne den Endpoint) → false = bisheriges Verhalten;
+     *  ohne Zutun des Users darf nichts automatisch starten. */
+    suspend fun getAutoplayNext(): Boolean {
+        return try {
+            val response = apiClientProvider.api.getPlaybackPreferences()
+            if (response.isSuccessful) response.body()?.autoplayNext == true else false
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+        catch (_: Exception) { false }
+    }
+
+    /** Setzt den Pro-Konto-Schalter. true = Server hat bestätigt (204). */
+    suspend fun setAutoplayNext(enabled: Boolean): Boolean {
+        return try {
+            apiClientProvider.api.setPlaybackPreferences(PlaybackPreferences(autoplayNext = enabled)).isSuccessful
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+        catch (_: Exception) { false }
+    }
 }

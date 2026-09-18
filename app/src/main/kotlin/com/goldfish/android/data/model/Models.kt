@@ -347,6 +347,28 @@ data class UpdateMusicItemMetadataRequest(
     val genre: String? = null
 )
 
+// --- "Nächste Folge automatisch starten" (Server-Repo: api/playback_next.go) ---
+
+/** Antwort von GET api/items/{id}/next-episode.
+ *  `next == null` heißt "letzte Folge der Serie" (oder das Item gehört zu
+ *  keiner Serie) — bewusst kein Fehler: der Server antwortet mit 200 und
+ *  {"next": null}, damit jeder Client diesen Normalfall ohne
+ *  Fehlerbehandlung abbilden kann. */
+@JsonClass(generateAdapter = true)
+data class NextEpisodeResponse(
+    val next: Item? = null
+)
+
+/** Pro-Konto-Wiedergabe-Einstellungen (GET/PUT api/playback/preferences).
+ *  Liegen serverseitig in user_settings — nur so gilt der Schalter auch auf
+ *  dem nächsten Gerät. Default AUS (bisheriges Verhalten). Das Auflösungs-
+ *  Profil ist bewusst NICHT Teil der Server-Präferenzen: es wird clientseitig
+ *  gemerkt und beim Folgenstart als `?profile=` mitgeschickt. */
+@JsonClass(generateAdapter = true)
+data class PlaybackPreferences(
+    val autoplayNext: Boolean = false
+)
+
 // --- Cast / Schauspieler ---
 
 @JsonClass(generateAdapter = true)

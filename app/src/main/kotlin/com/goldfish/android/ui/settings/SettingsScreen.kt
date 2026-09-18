@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -204,6 +205,45 @@ fun SettingsScreen(
                         }
                     }
                 }
+            }
+
+            Divider()
+
+            // Wiedergabe — Pro-Konto-Schalter auf dem Server
+            // (GET/PUT api/playback/preferences), damit die Einstellung auch
+            // auf dem nächsten Gerät gilt. Default AUS = bisheriges Verhalten.
+            Text(
+                text = "Wiedergabe",
+                style = MaterialTheme.typography.titleSmall,
+                color = GoldfishOrange
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Nächste Folge automatisch starten",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Text(
+                        text = "Am Ende einer Serienfolge erscheint ein Hinweis mit " +
+                               "10-Sekunden-Countdown und Abbrechen-Knopf; die zuletzt " +
+                               "eingestellte Auflösung gilt auch für die dann folgende " +
+                               "Folge. Pro Konto auf dem Server gespeichert.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Spacer(Modifier.width(12.dp))
+                Switch(
+                    checked = state.autoplayNext,
+                    onCheckedChange = { viewModel.setAutoplayNext(it) },
+                    // Erst nach dem Laden aktiv — sonst könnte ein Tippen auf
+                    // den noch nicht geladenen Server-Stand zurückfallen.
+                    enabled = state.autoplayNextLoaded
+                )
             }
 
             Divider()
