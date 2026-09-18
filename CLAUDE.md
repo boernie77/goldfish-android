@@ -65,6 +65,29 @@ Konvention" — nicht ändern, sonst stille App-Bugs:
 
 ## Feature-/Bugfix-Chronik
 
+### „Nächste Folge automatisch starten" (2026-09-18, vC 108 / 1.3.2)
+
+- Option in den Einstellungen (Abschnitt „Wiedergabe"), **Standard AUS**, pro
+  Konto. Maßgeblich ist der **Server** (`GET/PUT api/playback/preferences`, seit
+  Server v1.4.13) — dieselbe Einstellung gilt damit auch in Browser, Apple- und
+  Fire-TV-App; lokal liegt nur eine Kopie.
+- `Player.Listener.onPlaybackStateChanged(STATE_ENDED)` → Overlay mit
+  10-Sekunden-Countdown und „Jetzt abspielen"/„Abbrechen"; der Wechsel läuft
+  **in-place** in derselben `PlayerViewModel` (kein neuer Nav-Eintrag), das
+  Auflösungsprofil der Vorfolge wird übernommen und nur im Autoplay-Pfad
+  angewandt (ein normal geöffneter Titel bleibt unbegrenzt, wie im Browser).
+- **Die nächste Folge bestimmt der SERVER** (`GET api/items/{id}/next-episode`):
+  Staffel-/Folgen-Ordnung, Doppelfolgen als Block, Auflösungsvarianten
+  zusammengefasst, ACL und FSK des Kontos bereits angewandt. **Nicht** aus der
+  Seasons-Liste herleiten — der Seasons-Endpoint expandiert Doppelfolgen in
+  einen Eintrag je abgedeckter Folge mit DERSELBEN `itemId`, „der nächste
+  Eintrag" wäre die zweite Hälfte der eigenen Datei.
+- Anzeigename: `nextTitle` (TMDB-Folgentitel) → `metadata.title` → `title`.
+  `Item.title` ist der **Dateiname**.
+- Nebenbei behoben: `virtualOffset` wurde per `remember(playbackUrl)` neu
+  erzeugt, während die ExoPlayer-Listener nur einmal gebaut werden → stale
+  Referenz (falsche Resume-/Stop-Position nach Qualitäts- oder Folgenwechsel).
+
 ### 🔴→✅ Video-Player meldete nie Wiedergabe-Start/-Ende (gefixt 2026-09-14)
 
 User-Frage: "Wir haben heute Fehler in der iOS behoben. Gelten die auch für
