@@ -1,13 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <!-- Allow cleartext traffic for local LAN access -->
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="true">192.168.2.140</domain>
-        <domain includeSubdomains="true">192.168.1.0</domain>
-        <domain includeSubdomains="true">10.0.0.0</domain>
-        <domain includeSubdomains="true">localhost</domain>
-    </domain-config>
-    <base-config cleartextTrafficPermitted="false">
+    <!--
+        Ein Goldfish-Server läuft typischerweise im eigenen Netz ohne TLS
+        (http://<host>:8098). Klartext-HTTP ist deshalb generell erlaubt:
+        welche Adresse der Nutzer einträgt, ist vorher nicht bekannt, und
+        <domain> kennt KEINE CIDR-Bereiche — eine Adressliste würde nur für
+        exakt die dort genannten Hosts gelten und bei jedem anderen Heimnetz
+        stillschweigend die Verbindung blockieren.
+
+        HTTPS bleibt davon unberührt und wird weiterhin regulär gegen die
+        System- und Nutzer-Zertifikate geprüft; wer seinen Server hinter
+        einem Reverse-Proxy mit gültigem Zertifikat betreibt, verliert also
+        nichts. Der Eintrag "user" deckt selbst ausgestellte Zertifikate ab,
+        die der Nutzer bewusst im Gerät installiert hat.
+    -->
+    <base-config cleartextTrafficPermitted="true">
         <trust-anchors>
             <certificates src="system" />
             <certificates src="user" />

@@ -9,3 +9,6 @@ local.properties
 *.jks
 *.keystore
 keystore.properties
+
+# Persönliche Notizen mit Zugangsdaten — gehören nur auf den eigenen Rechner.
+Gitignore - wichtige Passw*
