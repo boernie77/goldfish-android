@@ -35,7 +35,13 @@ data class SearchState(
     // (X-Fuzzy-Extra-Count-Header) — Grundlage fuer den "N weitere
     // Treffer"-Button. 0/null nach dem Nachladen (Button verschwindet).
     val fuzzyExtraCount: Int = 0,
-    val isLoadingFuzzy: Boolean = false
+    val isLoadingFuzzy: Boolean = false,
+    // Schlaegt loadMoreFuzzyResults() fehl (Netzwerkfehler etc.), bleibt
+    // der Button (mitsamt fuzzyExtraCount) stehen statt stillschweigend
+    // zu verschwinden — Nutzer kann erneut klicken (QM-Review FTS5-Fuzzy-
+    // Suche, 2026-09-19: Android war bisher die einzige der 4 Apps ohne
+    // Fehlermeldung UND ohne Retry-Moeglichkeit).
+    val fuzzyError: String? = null
 )
 
 @HiltViewModel
@@ -136,19 +142,32 @@ class SearchViewModel @Inject constructor(
         val q = fuzzySearchQuery ?: return
         if (_state.value.isLoadingFuzzy) return
         viewModelScope.launch {
-            _state.update { it.copy(isLoadingFuzzy = true) }
+            _state.update { it.copy(isLoadingFuzzy = true, fuzzyError = null) }
             val known = _state.value.serverResults.map { it.id }.toSet()
-            val extra = when (val r = itemRepository.searchAcrossLibrariesFuzzy(q)) {
-                is Result.Success -> r.data.filter { it.id !in known }
-                is Result.Error -> emptyList()
-            }
-            fuzzySearchQuery = null
-            _state.update {
-                it.copy(
-                    isLoadingFuzzy = false,
-                    serverResults = it.serverResults + extra,
-                    fuzzyExtraCount = 0
-                )
+            when (val r = itemRepository.searchAcrossLibrariesFuzzy(q)) {
+                is Result.Success -> {
+                    val extra = r.data.filter { it.id !in known }
+                    fuzzySearchQuery = null
+                    _state.update {
+                        it.copy(
+                            isLoadingFuzzy = false,
+                            serverResults = it.serverResults + extra,
+                            fuzzyExtraCount = 0,
+                            fuzzyError = null
+                        )
+                    }
+                }
+                is Result.Error -> {
+                    // fuzzyExtraCount UND fuzzySearchQuery bleiben erhalten
+                    // (kein fuzzySearchQuery = null) — Button bleibt sichtbar,
+                    // ein erneuter Klick ruft loadMoreFuzzyResults() nochmal auf.
+                    _state.update {
+                        it.copy(
+                            isLoadingFuzzy = false,
+                            fuzzyError = "Weitere Treffer konnten nicht geladen werden."
+                        )
+                    }
+                }
             }
         }
     }

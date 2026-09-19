@@ -47,6 +47,14 @@ fun SearchScreen(
     var addToPlaylistItem by remember { mutableStateOf<Item?>(null) }
     val context = LocalContext.current
 
+    // Fehler beim Nachladen der Fuzzy-Treffer sichtbar machen (Toast, wie
+    // der Browser). Der Button selbst bleibt stehen (fuzzyExtraCount wird
+    // bei einem Fehler NICHT auf 0 gesetzt), ein erneuter Klick versucht
+    // es einfach nochmal (QM-Review FTS5-Fuzzy-Suche, 2026-09-19).
+    LaunchedEffect(state.fuzzyError) {
+        state.fuzzyError?.let { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
