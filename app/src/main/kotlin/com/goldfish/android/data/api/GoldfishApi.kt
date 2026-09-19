@@ -32,7 +32,12 @@ interface GoldfishApi {
         @Query("watched") watched: String? = null,
         @Query("favorite") favorite: String? = null,
         @Query("bucket") bucket: List<String>? = null,
-        @Query("genre") genre: List<String>? = null
+        @Query("genre") genre: List<String>? = null,
+        // "fuzzy" schliesst FTS5-Praefix-Treffer ein (z.B. "ring" -> "Ringe"),
+        // Standard (null) matcht nur ganze Woerter. Response setzt bei der
+        // Standardsuche den Header X-Fuzzy-Extra-Count mit der Anzahl
+        // zusaetzlicher Treffer, die der Fuzzy-Modus bringen wuerde.
+        @Query("searchMode") searchMode: String? = null
     ): Response<List<Item>>
 
     @GET("api/items/random")

@@ -30,7 +30,12 @@ data class SearchState(
     val offlineResults: List<Item> = emptyList(),
     val localResults: List<LocalItemEntity> = emptyList(),
     val offlineOnly: Boolean = false,
-    val baseUrl: String = ""
+    val baseUrl: String = "",
+    // Anzahl zusaetzlicher Treffer, die searchMode=fuzzy liefern wuerde
+    // (X-Fuzzy-Extra-Count-Header) — Grundlage fuer den "N weitere
+    // Treffer"-Button. 0/null nach dem Nachladen (Button verschwindet).
+    val fuzzyExtraCount: Int = 0,
+    val isLoadingFuzzy: Boolean = false
 )
 
 @HiltViewModel
@@ -56,6 +61,12 @@ class SearchViewModel @Inject constructor(
     // Debounce: nur die letzte 250ms-Eingabe wird tatsaechlich gesucht
     private var searchJob: Job? = null
 
+    // Query, zu der das aktuelle fuzzyExtraCount-Angebot gehoert (wie
+    // state.fuzzySearchParams im Browser) — der "N weitere Treffer"-Button
+    // laedt IMMER diese Query nach, nicht state.query (kann sich zwischen
+    // Suchergebnis und Klick durch weitere Eingabe schon geaendert haben).
+    private var fuzzySearchQuery: String? = null
+
     init {
         viewModelScope.launch {
             val s = settingsDataStore.settings.first()
@@ -73,27 +84,34 @@ class SearchViewModel @Inject constructor(
     }
 
     private suspend fun executeSearch(q: String) {
+        fuzzySearchQuery = null
         if (q.isBlank()) {
             _state.update {
                 it.copy(
                     isSearching = false,
                     serverResults = emptyList(),
                     offlineResults = emptyList(),
-                    localResults = emptyList()
+                    localResults = emptyList(),
+                    fuzzyExtraCount = 0
                 )
             }
             return
         }
-        _state.update { it.copy(isSearching = true) }
+        _state.update { it.copy(isSearching = true, fuzzyExtraCount = 0) }
         val offlineOnly = _state.value.offlineOnly
 
         // Server-Suche nur wenn online-Modus
+        var fuzzyExtraCount = 0
         val server = if (offlineOnly) emptyList() else {
             when (val r = itemRepository.searchAcrossLibraries(q)) {
-                is Result.Success -> r.data
+                is Result.Success -> {
+                    fuzzyExtraCount = r.data.fuzzyExtraCount
+                    r.data.items
+                }
                 is Result.Error -> emptyList()
             }
         }
+        if (fuzzyExtraCount > 0) fuzzySearchQuery = q
         val offline = try { offlineRepository.searchDownloads(q) } catch (_: Exception) { emptyList() }
         val currentUser = authRepository.authStatus.value?.username
             ?.takeIf { it.isNotBlank() && authRepository.authStatus.value?.isAuthenticated == true }
@@ -104,8 +122,34 @@ class SearchViewModel @Inject constructor(
                 isSearching = false,
                 serverResults = server,
                 offlineResults = offline,
-                localResults = local
+                localResults = local,
+                fuzzyExtraCount = fuzzyExtraCount
             )
+        }
+    }
+
+    /** "🔍 N weitere Treffer"-Button: laedt searchMode=fuzzy fuer dieselbe
+     *  Query nach und haengt nur neue (noch nicht angezeigte) Treffer ans
+     *  Ende der Server-Liste an — wie loadMoreFuzzySearchResults() im
+     *  Browser (grid.js). Button verschwindet danach (fuzzyExtraCount=0). */
+    fun loadMoreFuzzyResults() {
+        val q = fuzzySearchQuery ?: return
+        if (_state.value.isLoadingFuzzy) return
+        viewModelScope.launch {
+            _state.update { it.copy(isLoadingFuzzy = true) }
+            val known = _state.value.serverResults.map { it.id }.toSet()
+            val extra = when (val r = itemRepository.searchAcrossLibrariesFuzzy(q)) {
+                is Result.Success -> r.data.filter { it.id !in known }
+                is Result.Error -> emptyList()
+            }
+            fuzzySearchQuery = null
+            _state.update {
+                it.copy(
+                    isLoadingFuzzy = false,
+                    serverResults = it.serverResults + extra,
+                    fuzzyExtraCount = 0
+                )
+            }
         }
     }
 }

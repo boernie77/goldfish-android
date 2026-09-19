@@ -19,6 +19,11 @@ sealed class Result<out T> {
     data class Error(val message: String) : Result<Nothing>()
 }
 
+/** Ergebnis von [ItemRepository.searchAcrossLibraries]: Treffer der
+ *  Standardsuche (ganze Woerter) plus die Anzahl zusaetzlicher Treffer,
+ *  die searchMode=fuzzy liefern wuerde (X-Fuzzy-Extra-Count-Header). */
+data class SearchResult(val items: List<Item>, val fuzzyExtraCount: Int)
+
 @Singleton
 class ItemRepository @Inject constructor(
     private val apiClientProvider: ApiClientProvider,
@@ -107,11 +112,30 @@ class ItemRepository @Inject constructor(
 
     /** Globale Suche ueber ALLE Server-Libraries — wird von der App-weiten
      *  Suchfunktion verwendet. Ohne libraryId-Filter durchsucht der Server
-     *  alle Libs, auf die der eingeloggte User Zugriff hat. */
-    suspend fun searchAcrossLibraries(query: String): Result<List<Item>> {
-        if (query.isBlank()) return Result.Success(emptyList())
+     *  alle Libs, auf die der eingeloggte User Zugriff hat.
+     *
+     *  Liest zusaetzlich den X-Fuzzy-Extra-Count-Header aus (wie der
+     *  Browser, siehe api.js fetchItemsWithMeta) — Anzahl zusaetzlicher
+     *  Treffer, die searchMode=fuzzy liefern wuerde, fuer den
+     *  "N weitere Treffer"-Button. */
+    suspend fun searchAcrossLibraries(query: String): Result<SearchResult> {
+        if (query.isBlank()) return Result.Success(SearchResult(emptyList(), 0))
         return try {
             val response = apiClientProvider.api.getItems(search = query)
+            if (response.isSuccessful) {
+                val extraCount = response.headers()["X-Fuzzy-Extra-Count"]?.toIntOrNull() ?: 0
+                Result.Success(SearchResult(response.body() ?: emptyList(), extraCount))
+            } else Result.Error("HTTP ${response.code()}")
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+        catch (e: Exception) { Result.Error(e.message ?: "Unbekannter Fehler") }
+    }
+
+    /** Fuzzy-Nachladen fuer den "N weitere Treffer"-Button (searchMode=fuzzy,
+     *  schliesst FTS5-Praefix-Treffer ein). Ungecacht, wie searchAcrossLibraries. */
+    suspend fun searchAcrossLibrariesFuzzy(query: String): Result<List<Item>> {
+        if (query.isBlank()) return Result.Success(emptyList())
+        return try {
+            val response = apiClientProvider.api.getItems(search = query, searchMode = "fuzzy")
             if (response.isSuccessful) Result.Success(response.body() ?: emptyList())
             else Result.Error("HTTP ${response.code()}")
         } catch (e: kotlinx.coroutines.CancellationException) { throw e }

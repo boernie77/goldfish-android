@@ -132,6 +132,9 @@ fun SearchScreen(
                             ServerResultRow(item, state.baseUrl) { onOpenServerItem(item.id) }
                         }
                     }
+                    if (state.fuzzyExtraCount > 0) {
+                        item { FuzzyExtraButton(state.fuzzyExtraCount, state.isLoadingFuzzy) { viewModel.loadMoreFuzzyResults() } }
+                    }
                 }
                 if (state.offlineResults.isNotEmpty()) {
                     item { SectionHeader("📥 Offline-Downloads (${state.offlineResults.size})") }
@@ -157,6 +160,20 @@ fun SearchScreen(
                 addToPlaylistItem = null
             }
         )
+    }
+}
+
+/** "🔍 N weitere Treffer"-Button — Pendant zum Browser-Button (views.js
+ *  appendFuzzyExtraButton). Klick laedt searchMode=fuzzy nach und haengt
+ *  neue Treffer ans Ende der Server-Sektion an. */
+@Composable
+private fun FuzzyExtraButton(count: Int, isLoading: Boolean, onClick: () -> Unit) {
+    TextButton(
+        onClick = onClick,
+        enabled = !isLoading,
+        modifier = Modifier.padding(vertical = 4.dp)
+    ) {
+        Text(if (isLoading) "🔍 Lädt …" else "🔍 $count weitere Treffer")
     }
 }
 
