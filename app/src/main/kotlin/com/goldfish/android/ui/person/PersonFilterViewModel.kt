@@ -95,14 +95,19 @@ class PersonFilterViewModel @Inject constructor(
                     val showGroups = groups.entries.map { (key, eps) ->
                         val (libId, folder) = groupMeta.getValue(key)
                         val showParentId = eps.firstOrNull()?.metadata?.parentId?.takeIf { it > 0 }
+                        val sortedEps = eps.sortedWith(
+                            compareBy<Item> { it.metadata?.season ?: Int.MAX_VALUE }
+                                .thenBy { it.metadata?.episode ?: Int.MAX_VALUE }
+                        )
                         PersonShowGroup(
                             libraryId = libId,
                             folder = folder,
                             showParentId = showParentId,
-                            fallbackThumbItemId = eps.first().id,
-                            episodes = eps
+                            fallbackThumbItemId = sortedEps.first().id,
+                            episodes = sortedEps
                         )
                     }
+
 
                     _state.update {
                         it.copy(

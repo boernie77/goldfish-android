@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -122,27 +123,56 @@ fun PersonFilterScreen(
                         horizontalArrangement = Arrangement.spacedBy(gap),
                         verticalArrangement = Arrangement.spacedBy(gap)
                     ) {
-                        items(state.movies) { item ->
-                            VideoCard(
-                                item = item,
-                                imageUrl = viewModel.getImageUrl(item),
-                                cardWidth = cardWidth,
-                                onClick = { onOpenItem(item.id) }
-                            )
+                        // Immer zwei getrennte, ueberschriftete Sektionen —
+                        // Filme komplett vor Serien (User-Zitat 2026-09-20:
+                        // "Es sollen immer alle Treffer von Filmen und Serien
+                        // aufgezeigt werden, aber Kategorisiert. Also Erst
+                        // Filme (mit Ueberschrift) und dann extra Bereich mit
+                        // Ueberschrift Serien."), keine gemischte Liste.
+                        if (state.movies.isNotEmpty()) {
+                            item(span = { GridItemSpan(maxLineSpan) }) {
+                                SectionHeader("🎬 Filme")
+                            }
+                            items(state.movies) { item ->
+                                VideoCard(
+                                    item = item,
+                                    imageUrl = viewModel.getImageUrl(item),
+                                    cardWidth = cardWidth,
+                                    onClick = { onOpenItem(item.id) }
+                                )
+                            }
                         }
-                        items(state.showGroups) { group ->
-                            PersonShowGroupCard(
-                                group = group,
-                                imageUrl = viewModel.getShowGroupImageUrl(group),
-                                cardWidth = cardWidth,
-                                onClick = { viewModel.openShowGroup(group) }
-                            )
+                        if (state.showGroups.isNotEmpty()) {
+                            item(span = { GridItemSpan(maxLineSpan) }) {
+                                SectionHeader("📺 Serien")
+                            }
+                            items(state.showGroups) { group ->
+                                PersonShowGroupCard(
+                                    group = group,
+                                    imageUrl = viewModel.getShowGroupImageUrl(group),
+                                    cardWidth = cardWidth,
+                                    onClick = { viewModel.openShowGroup(group) }
+                                )
+                            }
                         }
                     }
                 }
             }
         }
     }
+}
+
+/** Sektions-Ueberschrift ("Filme"/"Serien") ueber der jeweiligen Grid-Sektion —
+ *  User-Wunsch 2026-09-20: Filme und Serien immer als zwei klar getrennte,
+ *  ueberschriftete Bereiche zeigen statt einer gemischten Liste. */
+@Composable
+private fun SectionHeader(title: String) {
+    Text(
+        text = title,
+        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+        color = MaterialTheme.colorScheme.onSurface,
+        modifier = Modifier.padding(top = 4.dp, bottom = 2.dp)
+    )
 }
 
 /** Sammelkachel fuer EINE Serie im Person-Filter — Serienposter + Anzahl der
