@@ -152,26 +152,44 @@ class ItemRepository @Inject constructor(
         favorite: String? = null,
         bucket: List<String>? = null,
         genre: List<String>? = null,
-        libraryIds: List<Int>? = null   // mehrere Libraries (virtuelle Zusammenlegung)
+        libraryIds: List<Int>? = null,   // mehrere Libraries (virtuelle Zusammenlegung)
+        personId: Long? = null           // Person-Filter (aufgegliederte Trefferanzeige)
     ): Result<List<Item>> {
         val effectiveIds = when {
             !libraryIds.isNullOrEmpty() -> libraryIds
             libraryId != null -> listOf(libraryId)
             else -> null
         }
-        // Bei aktiver Suche kein Cache
-        val key = if (!search.isNullOrBlank()) null
+        // Bei aktiver Suche oder Person-Filter kein Cache
+        val key = if (!search.isNullOrBlank() || personId != null) null
         else "items:${effectiveIds?.joinToString(",")}:$folder:$sort:$dir:$watched:$favorite:${bucket?.joinToString(",")}:${genre?.joinToString(",")}"
 
         if (key != null) cache.get<List<Item>>(key)?.let { return Result.Success(it) }
         return try {
-            val response = apiClientProvider.api.getItems(effectiveIds, folder, sort, dir, search, watched, favorite, bucket, genre)
+            val response = apiClientProvider.api.getItems(effectiveIds, folder, sort, dir, search, watched, favorite, bucket, genre, personId)
             if (response.isSuccessful) {
                 val data = response.body() ?: emptyList()
                 if (key != null) cache.put(key, data)
                 Result.Success(data)
             } else Result.Error("HTTP ${response.code()}")
         } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { Result.Error(e.message ?: "Unbekannter Fehler") }
+    }
+
+    /** GET /api/search/people (Server v1.4.22, aufgegliederte Trefferanzeige).
+     *  Liefert Schauspieler-Treffer fuer denselben Suchbegriff wie [getItems],
+     *  gescoped auf dieselbe Library/Folder — separat, weil /api/items seit
+     *  1.4.22 NUR noch den Titel matcht. Ungecacht (wie Item-Suche), leere
+     *  Liste bei Fehler (Section verschwindet einfach, kein harter Fehler).
+     *  Server liefert selbst leer bei Term < 3 Zeichen — wir gaten schon
+     *  clientseitig, um den Call ganz zu sparen (Pendant zum 2-Zeichen-
+     *  Debounce-Minimum bei /api/items). */
+    suspend fun searchPeople(query: String, libraryId: Int? = null, folder: String? = null): List<PersonSearchResult> {
+        if (query.trim().length < 3) return emptyList()
+        return try {
+            val response = apiClientProvider.api.searchPeople(query.trim(), libraryId, folder)
+            if (response.isSuccessful) response.body() ?: emptyList() else emptyList()
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+        catch (e: Exception) { emptyList() }
     }
 
     /** Markiert ein Item server-seitig als "zuletzt gespielt"

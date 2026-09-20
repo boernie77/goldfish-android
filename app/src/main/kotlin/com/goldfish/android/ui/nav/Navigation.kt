@@ -115,6 +115,12 @@ sealed class Screen(val route: String) {
                    else "$base?folder=${java.net.URLEncoder.encode(folder, "UTF-8")}"
         }
     }
+    // Person-Filter ("alle Videos mit Schauspieler X") — Pendant zum
+    // Browser-openPersonView. tmdbId ist der TMDB-Person-Identifier.
+    object PersonFilter : Screen("person/{tmdbId}/{name}") {
+        fun createRoute(tmdbId: Long, name: String) =
+            "person/$tmdbId/${java.net.URLEncoder.encode(name, "UTF-8")}"
+    }
 }
 
 @Composable
@@ -201,7 +207,10 @@ fun GoldfishNavHost(
                         popUpTo(Screen.Home.route) { inclusive = false }
                     }
                 },
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                onOpenPerson = { tmdbId, name ->
+                    navController.navigate(Screen.PersonFilter.createRoute(tmdbId, name))
+                }
             )
         }
 
@@ -236,7 +245,10 @@ fun GoldfishNavHost(
                         popUpTo(Screen.Home.route) { inclusive = false }
                     }
                 },
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                onOpenPerson = { tmdbId, name ->
+                    navController.navigate(Screen.PersonFilter.createRoute(tmdbId, name))
+                }
             )
         }
 
@@ -250,7 +262,10 @@ fun GoldfishNavHost(
                 onNavigateToPlayer = { id ->
                     navController.navigate(Screen.Player.createRoute(id))
                 },
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                onOpenPerson = { tmdbId, name ->
+                    navController.navigate(Screen.PersonFilter.createRoute(tmdbId, name))
+                }
             )
         }
 
@@ -436,6 +451,30 @@ fun GoldfishNavHost(
                 },
                 onOpenLocalItem = { itemId ->
                     navController.navigate(Screen.LocalPlayer.createRoute(itemId))
+                },
+                onOpenPerson = { tmdbId, name ->
+                    navController.navigate(Screen.PersonFilter.createRoute(tmdbId, name))
+                }
+            )
+        }
+
+        composable(
+            Screen.PersonFilter.route,
+            arguments = listOf(
+                navArgument("tmdbId") { type = NavType.LongType },
+                navArgument("name") { type = NavType.StringType }
+            )
+        ) { backStackEntry ->
+            val tmdbId = backStackEntry.arguments?.getLong("tmdbId") ?: return@composable
+            val name = backStackEntry.arguments?.getString("name")?.let {
+                java.net.URLDecoder.decode(it, "UTF-8")
+            } ?: ""
+            com.goldfish.android.ui.person.PersonFilterScreen(
+                tmdbId = tmdbId,
+                name = name,
+                onBack = { navController.popBackStack() },
+                onOpenItem = { itemId ->
+                    navController.navigate(Screen.Detail.createRoute(itemId))
                 }
             )
         }

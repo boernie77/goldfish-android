@@ -1,6 +1,7 @@
 package com.goldfish.android.ui.detail
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -36,6 +37,7 @@ fun DetailScreen(
     itemId: Int,
     onNavigateToPlayer: (Int) -> Unit,
     onBack: () -> Unit,
+    onOpenPerson: (tmdbId: Long, name: String) -> Unit = { _, _ -> },
     viewModel: DetailViewModel = hiltViewModel()
 ) {
     // Item bei jedem Lifecycle-Resume neu laden — wichtig, damit nach Rückkehr vom
@@ -155,7 +157,8 @@ fun DetailScreen(
                             onToggleFavorite = viewModel::toggleFavorite,
                             onStartDownload = viewModel::startDownload,
                             onDeleteDownload = viewModel::deleteDownload,
-                            onSelectVariant = viewModel::selectVariant
+                            onSelectVariant = viewModel::selectVariant,
+                            onOpenPerson = onOpenPerson
                         )
                     } else {
                         PhoneDetailLayout(
@@ -167,7 +170,8 @@ fun DetailScreen(
                             onToggleFavorite = viewModel::toggleFavorite,
                             onStartDownload = viewModel::startDownload,
                             onDeleteDownload = viewModel::deleteDownload,
-                            onSelectVariant = viewModel::selectVariant
+                            onSelectVariant = viewModel::selectVariant,
+                            onOpenPerson = onOpenPerson
                         )
                     }
                 }
@@ -189,7 +193,8 @@ private fun TabletDetailLayout(
     onToggleFavorite: () -> Unit,
     onStartDownload: () -> Unit,
     onDeleteDownload: () -> Unit,
-    onSelectVariant: (Int) -> Unit
+    onSelectVariant: (Int) -> Unit,
+    onOpenPerson: (tmdbId: Long, name: String) -> Unit = { _, _ -> }
 ) {
     Row(
         modifier = Modifier
@@ -246,7 +251,7 @@ private fun TabletDetailLayout(
                 onDeleteDownload = onDeleteDownload
             )
             if (state.cast.isNotEmpty()) {
-                CastStrip(cast = state.cast, baseUrl = state.baseUrl)
+                CastStrip(cast = state.cast, baseUrl = state.baseUrl, onOpenPerson = onOpenPerson)
             }
         }
     }
@@ -265,7 +270,8 @@ private fun PhoneDetailLayout(
     onToggleFavorite: () -> Unit,
     onStartDownload: () -> Unit,
     onDeleteDownload: () -> Unit,
-    onSelectVariant: (Int) -> Unit
+    onSelectVariant: (Int) -> Unit,
+    onOpenPerson: (tmdbId: Long, name: String) -> Unit = { _, _ -> }
 ) {
     Column(
         modifier = Modifier
@@ -324,7 +330,7 @@ private fun PhoneDetailLayout(
             )
             if (state.cast.isNotEmpty()) {
                 Spacer(Modifier.height(4.dp))
-                CastStrip(cast = state.cast, baseUrl = state.baseUrl)
+                CastStrip(cast = state.cast, baseUrl = state.baseUrl, onOpenPerson = onOpenPerson)
             }
             Spacer(Modifier.height(4.dp))
             HorizontalDivider()
@@ -631,7 +637,8 @@ private fun parseGenres(genresJson: String): List<String> {
 @Composable
 private fun CastStrip(
     cast: List<com.goldfish.android.data.model.CastMember>,
-    baseUrl: String
+    baseUrl: String,
+    onOpenPerson: (tmdbId: Long, name: String) -> Unit = { _, _ -> }
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(
@@ -646,7 +653,7 @@ private fun CastStrip(
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             cast.take(20).forEach { member ->
-                CastMemberCard(member = member, baseUrl = baseUrl)
+                CastMemberCard(member = member, baseUrl = baseUrl, onOpenPerson = onOpenPerson)
             }
         }
     }
@@ -655,7 +662,8 @@ private fun CastStrip(
 @Composable
 private fun CastMemberCard(
     member: com.goldfish.android.data.model.CastMember,
-    baseUrl: String
+    baseUrl: String,
+    onOpenPerson: (tmdbId: Long, name: String) -> Unit = { _, _ -> }
 ) {
     val imageUrl = if (member.tmdbId > 0) {
         "${baseUrl.trimEnd('/')}/api/person/${member.tmdbId}/profile"
@@ -664,6 +672,12 @@ private fun CastMemberCard(
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier.width(80.dp)
+            // Tap öffnet den Person-Filter ("alle Videos mit dieser Person",
+            // PersonFilterScreen) — bis dahin hatte diese Karte KEINE
+            // Navigation (siehe Audit-Notiz, User-Wunsch 2026-09-20).
+            .clickable(enabled = member.tmdbId > 0) {
+                onOpenPerson(member.tmdbId.toLong(), member.name)
+            }
     ) {
         Box(
             modifier = Modifier

@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.goldfish.android.data.SettingsDataStore
 import com.goldfish.android.data.local.LocalItemEntity
 import com.goldfish.android.data.model.Item
+import com.goldfish.android.data.model.PersonSearchResult
 import com.goldfish.android.data.player.MusicPlayerController
 import com.goldfish.android.data.repository.ItemRepository
 import com.goldfish.android.data.repository.LocalLibraryRepository
@@ -12,6 +13,7 @@ import com.goldfish.android.data.repository.OfflineRepository
 import com.goldfish.android.data.repository.Result
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -31,6 +33,10 @@ data class SearchState(
     val localResults: List<LocalItemEntity> = emptyList(),
     val offlineOnly: Boolean = false,
     val baseUrl: String = "",
+    // Schauspieler-Treffer der aufgegliederten Trefferanzeige (Server v1.4.22,
+    // GET /api/search/people) — ganz oben ueber der Ergebnisliste gerendert.
+    // Nur ab 3 Zeichen Suchbegriff befuellt (Server liefert sonst leer).
+    val personResults: List<PersonSearchResult> = emptyList(),
     // Anzahl zusaetzlicher Treffer, die searchMode=fuzzy liefern wuerde
     // (X-Fuzzy-Extra-Count-Header) — Grundlage fuer den "N weitere
     // Treffer"-Button. 0/null nach dem Nachladen (Button verschwindet).
@@ -98,6 +104,7 @@ class SearchViewModel @Inject constructor(
                     serverResults = emptyList(),
                     offlineResults = emptyList(),
                     localResults = emptyList(),
+                    personResults = emptyList(),
                     fuzzyExtraCount = 0
                 )
             }
@@ -105,6 +112,15 @@ class SearchViewModel @Inject constructor(
         }
         _state.update { it.copy(isSearching = true, fuzzyExtraCount = 0) }
         val offlineOnly = _state.value.offlineOnly
+
+        // Schauspieler-Suche (aufgegliederte Trefferanzeige) parallel zur
+        // Item-Suche starten — beide sind unabhaengige Netzwerk-Calls.
+        // viewModelScope.async (nicht coroutineScope { async {} }) — sonst
+        // wuerde coroutineScope am Blockende auf den Kind-Job warten und
+        // die "Parallelitaet" waere nur eine versteckte Serialisierung.
+        // Offline-Modus: keine Personen-Suche (nur Server-Endpoint).
+        val peopleDeferred = if (offlineOnly) null
+            else viewModelScope.async { itemRepository.searchPeople(q) }
 
         // Server-Suche nur wenn online-Modus
         var fuzzyExtraCount = 0
@@ -122,6 +138,7 @@ class SearchViewModel @Inject constructor(
         val currentUser = authRepository.authStatus.value?.username
             ?.takeIf { it.isNotBlank() && authRepository.authStatus.value?.isAuthenticated == true }
         val local = try { localLibraryRepository.searchAllItems(q, currentUser) } catch (_: Exception) { emptyList() }
+        val people = peopleDeferred?.let { try { it.await() } catch (_: Exception) { emptyList() } } ?: emptyList()
 
         _state.update {
             it.copy(
@@ -129,6 +146,7 @@ class SearchViewModel @Inject constructor(
                 serverResults = server,
                 offlineResults = offline,
                 localResults = local,
+                personResults = people,
                 fuzzyExtraCount = fuzzyExtraCount
             )
         }

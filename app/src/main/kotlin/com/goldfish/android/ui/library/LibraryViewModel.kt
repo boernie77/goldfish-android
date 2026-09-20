@@ -92,7 +92,11 @@ data class LibraryState(
     // Aktiver Drilldown-Modus fuer den aktuellen Folder:
     // wenn true und currentFolder!=null, werden Subfolders + nur direkte
     // Items angezeigt (statt rekursiv-flach). Wird per Route-Param gesetzt.
-    val currentFolderDrilldown: Boolean = false
+    val currentFolderDrilldown: Boolean = false,
+    // Aufgegliederte Trefferanzeige (Server v1.4.22): Schauspieler-Treffer
+    // fuer state.searchQuery, gescoped auf diese Library/diesen Folder.
+    // Gleiches Pendant zu SearchScreen.personResults, hier library-scoped.
+    val personResults: List<com.goldfish.android.data.model.PersonSearchResult> = emptyList()
 )
 
 @HiltViewModel
@@ -668,6 +672,19 @@ class LibraryViewModel @Inject constructor(
         // zwingen — nur der manuelle Flat-Toggle macht das Lib-weit.
         val folderParam = if (st.flatView) null else currentFolder
         val buckets = st.selectedBuckets.takeIf { it.isNotEmpty() }?.toList()
+
+        // Aufgegliederte Trefferanzeige (Server v1.4.22): Schauspieler-Suche
+        // parallel zur Item-Suche, gescoped auf dieselbe Library/denselben
+        // Folder wie die Item-Suche (Pendant zum Browser-appendSearchResultCards
+        // opts.libraryId/opts.folder). Nur bei aktiver Suche noetig.
+        if (search != null) {
+            viewModelScope.launch {
+                val people = itemRepository.searchPeople(search, currentLibraryId, folderParam)
+                if (isStillCurrent(myGen)) _state.update { it.copy(personResults = people) }
+            }
+        } else if (st.personResults.isNotEmpty()) {
+            _state.update { it.copy(personResults = emptyList()) }
+        }
 
         // dir explizit mitsenden — Server-Default für leeres dir ist je nach
         // sort-Feld unterschiedlich (released wird DESC, title ASC). Mit

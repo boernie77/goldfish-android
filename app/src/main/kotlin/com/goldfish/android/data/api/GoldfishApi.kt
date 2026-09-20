@@ -33,12 +33,27 @@ interface GoldfishApi {
         @Query("favorite") favorite: String? = null,
         @Query("bucket") bucket: List<String>? = null,
         @Query("genre") genre: List<String>? = null,
+        // Person-Filter (aufgegliederte Trefferanzeige, tmdbId aus dem
+        // gewaehlten Schauspieler-Ergebnis / Cast-Treffer) — Pendant zum
+        // Browser-personFilter (grid.js renderPersonFilterBranch).
+        @Query("personId") personId: Long? = null,
         // "fuzzy" schliesst FTS5-Praefix-Treffer ein (z.B. "ring" -> "Ringe"),
         // Standard (null) matcht nur ganze Woerter. Response setzt bei der
         // Standardsuche den Header X-Fuzzy-Extra-Count mit der Anzahl
         // zusaetzlicher Treffer, die der Fuzzy-Modus bringen wuerde.
         @Query("searchMode") searchMode: String? = null
     ): Response<List<Item>>
+
+    // Aufgegliederte Trefferanzeige (Server v1.4.22): Schauspieler-Treffer
+    // fuer denselben Suchbegriff, separat von /api/items (das seit 1.4.22
+    // NUR noch den Titel matcht, keine Cast-Namen mehr). Gleicher
+    // Library-/Folder-Scope wie die Item-Suche.
+    @GET("api/search/people")
+    suspend fun searchPeople(
+        @Query("q") q: String,
+        @Query("libraryId") libraryId: Int? = null,
+        @Query("folder") folder: String? = null
+    ): Response<List<PersonSearchResult>>
 
     @GET("api/items/random")
     suspend fun getRandomItem(
