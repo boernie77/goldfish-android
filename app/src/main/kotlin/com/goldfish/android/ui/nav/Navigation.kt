@@ -265,6 +265,9 @@ fun GoldfishNavHost(
                 onBack = { navController.popBackStack() },
                 onOpenPerson = { tmdbId, name ->
                     navController.navigate(Screen.PersonFilter.createRoute(tmdbId, name))
+                },
+                onOpenShow = { libraryId, folder ->
+                    navController.navigate(Screen.LibraryFolder.createRoute(libraryId, folder))
                 }
             )
         }

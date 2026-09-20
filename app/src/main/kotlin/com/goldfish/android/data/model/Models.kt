@@ -46,7 +46,12 @@ data class Metadata(
     @Json(name = "runtimeMin") val runtime: Int? = null,
     val backdropPath: String? = null,
     val imdbId: String? = null,
-    val tmdbId: Int? = null
+    val tmdbId: Int? = null,
+    // Episode → Show (metadata.parent_id im Server). Grundlage fuer die
+    // Serien-Sammelkachel im Person-Filter (User-Wunsch 2026-09-20: Episoden-
+    // Treffer nach Serie buendeln statt einzeln zu zeigen) und fuer den
+    // klickbaren Serienlink in der Episoden-Detailansicht.
+    val parentId: Int? = null
 )
 
 @JsonClass(generateAdapter = true)

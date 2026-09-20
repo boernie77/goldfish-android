@@ -38,6 +38,11 @@ fun DetailScreen(
     onNavigateToPlayer: (Int) -> Unit,
     onBack: () -> Unit,
     onOpenPerson: (tmdbId: Long, name: String) -> Unit = { _, _ -> },
+    // Serienname-Klick bei einer Episode (User-Wunsch 2026-09-20): navigiert
+    // zur Staffeluebersicht der Serie. Wiederverwendet die bestehende
+    // LibraryFolder-Route (Show-Ordner einer TV-Lib rendert dort per Default
+    // die Staffel-Ansicht) statt eine neue Navigation zu bauen.
+    onOpenShow: (libraryId: Int, folder: String) -> Unit = { _, _ -> },
     viewModel: DetailViewModel = hiltViewModel()
 ) {
     // Item bei jedem Lifecycle-Resume neu laden — wichtig, damit nach Rückkehr vom
@@ -158,7 +163,8 @@ fun DetailScreen(
                             onStartDownload = viewModel::startDownload,
                             onDeleteDownload = viewModel::deleteDownload,
                             onSelectVariant = viewModel::selectVariant,
-                            onOpenPerson = onOpenPerson
+                            onOpenPerson = onOpenPerson,
+                            onOpenShow = onOpenShow
                         )
                     } else {
                         PhoneDetailLayout(
@@ -171,7 +177,8 @@ fun DetailScreen(
                             onStartDownload = viewModel::startDownload,
                             onDeleteDownload = viewModel::deleteDownload,
                             onSelectVariant = viewModel::selectVariant,
-                            onOpenPerson = onOpenPerson
+                            onOpenPerson = onOpenPerson,
+                            onOpenShow = onOpenShow
                         )
                     }
                 }
@@ -194,7 +201,8 @@ private fun TabletDetailLayout(
     onStartDownload: () -> Unit,
     onDeleteDownload: () -> Unit,
     onSelectVariant: (Int) -> Unit,
-    onOpenPerson: (tmdbId: Long, name: String) -> Unit = { _, _ -> }
+    onOpenPerson: (tmdbId: Long, name: String) -> Unit = { _, _ -> },
+    onOpenShow: (libraryId: Int, folder: String) -> Unit = { _, _ -> }
 ) {
     Row(
         modifier = Modifier
@@ -230,7 +238,7 @@ private fun TabletDetailLayout(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            TitleBlock(item = item)
+            TitleBlock(item = item, onOpenShow = onOpenShow)
             GenreChips(item = item)
             EpisodeInfo(item = item)
             OverviewText(item = item, maxLines = 5)
@@ -271,7 +279,8 @@ private fun PhoneDetailLayout(
     onStartDownload: () -> Unit,
     onDeleteDownload: () -> Unit,
     onSelectVariant: (Int) -> Unit,
-    onOpenPerson: (tmdbId: Long, name: String) -> Unit = { _, _ -> }
+    onOpenPerson: (tmdbId: Long, name: String) -> Unit = { _, _ -> },
+    onOpenShow: (libraryId: Int, folder: String) -> Unit = { _, _ -> }
 ) {
     Column(
         modifier = Modifier
@@ -301,7 +310,7 @@ private fun PhoneDetailLayout(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                TitleBlock(item = item)
+                TitleBlock(item = item, onOpenShow = onOpenShow)
                 EpisodeInfo(item = item)
             }
         }
@@ -346,7 +355,25 @@ private fun PhoneDetailLayout(
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
-private fun TitleBlock(item: Item) {
+private fun TitleBlock(item: Item, onOpenShow: (libraryId: Int, folder: String) -> Unit = { _, _ -> }) {
+    // Serienname VOR dem Episodentitel, klickbar (User-Wunsch 2026-09-20:
+    // "der Serienname muss klickbar sein und zur Staffelübersicht der Serie
+    // führen"). Show-Name kommt aus rel_path[0] — die Item-Metadata trägt nur
+    // die Episode, nicht die Show (analog Browser player.js data-show-link).
+    if (item.isTvEpisode) {
+        val showName = item.relPath?.substringBefore('/', "")?.takeIf { it.isNotBlank() }
+        if (showName != null) {
+            Text(
+                text = showName,
+                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                color = GoldfishOrange,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.clickable { onOpenShow(item.libraryId, showName) }
+            )
+            Spacer(Modifier.height(2.dp))
+        }
+    }
     Text(
         text = item.displayTitle,
         style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold)
