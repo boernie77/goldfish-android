@@ -1,0 +1,307 @@
+---
+name: goldfishandroid-feature-history
+description: "Use when checking what the Goldfish Android client already has or when hunting an Android feature/bugfix regression - the full feature and bugfix chronicle of the app (autoplay next episode, playback reports, download resolution, music libraries, 1.2.67 / 1.1.3 snapshots)."
+---
+
+# goldfishandroid-feature-history
+
+Die vollständige Feature-/Bugfix-Chronik des Android-Clients. Sie liegt hier (statt in der
+`CLAUDE.md`) und ist Projekt-lokal, weil die Detail-Memories im Server-Repo pro
+Arbeitsverzeichnis gespeichert wurden und eine Session in diesem Repo sie nicht sieht.
+Originaltext der früheren `CLAUDE.md` (Stand 2026-09-20), verbatim.
+
+## Harte Regeln
+
+- Vor dem Bauen eines Features erst hier nachsehen, ob es die App schon hat — die Einträge
+  nennen die konkreten Dateien und Endpoints.
+- Die Chronik beschreibt **gewachsenes, getestetes Verhalten** (z. B. Autoplay über
+  `next-episode` serverseitig, Musik-Player als eigener `MediaSessionService`): nicht
+  „vereinfachen", ohne den Eintrag zu Ende zu lesen.
+- Der Browser bleibt die Referenz für Feature-Parität; die Chronik sagt nur, was auf Android
+  existiert bzw. bewusst fehlt.
+- Versionen in der Chronik sind der Stand zum jeweiligen Datum — `versionCode` wird trotzdem bei
+  jeder neuen AAB erhöht.
+- Änderungen am Client-Code der Fire-TV-App (`data/api/GoldfishApi.kt`, `data/model/Models.kt`)
+  sind 1:1-Kopien und müssen in beiden Repos nachgezogen werden.
+
+---
+
+## Feature-/Bugfix-Chronik
+
+### „Nächste Folge automatisch starten" (2026-09-18, vC 108 / 1.3.2)
+
+- Option in den Einstellungen (Abschnitt „Wiedergabe"), **Standard AUS**, pro
+  Konto. Maßgeblich ist der **Server** (`GET/PUT api/playback/preferences`, seit
+  Server v1.4.13) — dieselbe Einstellung gilt damit auch in Browser, Apple- und
+  Fire-TV-App; lokal liegt nur eine Kopie.
+- `Player.Listener.onPlaybackStateChanged(STATE_ENDED)` → Overlay mit
+  10-Sekunden-Countdown und „Jetzt abspielen"/„Abbrechen"; der Wechsel läuft
+  **in-place** in derselben `PlayerViewModel` (kein neuer Nav-Eintrag), das
+  Auflösungsprofil der Vorfolge wird übernommen und nur im Autoplay-Pfad
+  angewandt (ein normal geöffneter Titel bleibt unbegrenzt, wie im Browser).
+- **Die nächste Folge bestimmt der SERVER** (`GET api/items/{id}/next-episode`):
+  Staffel-/Folgen-Ordnung, Doppelfolgen als Block, Auflösungsvarianten
+  zusammengefasst, ACL und FSK des Kontos bereits angewandt. **Nicht** aus der
+  Seasons-Liste herleiten — der Seasons-Endpoint expandiert Doppelfolgen in
+  einen Eintrag je abgedeckter Folge mit DERSELBEN `itemId`, „der nächste
+  Eintrag" wäre die zweite Hälfte der eigenen Datei.
+- Anzeigename: `nextTitle` (TMDB-Folgentitel) → `metadata.title` → `title`.
+  `Item.title` ist der **Dateiname**.
+- Nebenbei behoben: `virtualOffset` wurde per `remember(playbackUrl)` neu
+  erzeugt, während die ExoPlayer-Listener nur einmal gebaut werden → stale
+  Referenz (falsche Resume-/Stop-Position nach Qualitäts- oder Folgenwechsel).
+
+### 🔴→✅ Video-Player meldete nie Wiedergabe-Start/-Ende (gefixt 2026-09-14)
+
+User-Frage: "Wir haben heute Fehler in der iOS behoben. Gelten die auch für
+Android?" — Untersuchung ergab zwei unterschiedliche Befunde:
+- **`MusicPlaybackService`** meldet Start/Stop bereits korrekt bei jedem
+  Titelwechsel (`onMediaItemTransition` ruft `reportStop` fürs alte Item
+  VOR `reportStart` fürs neue) — der iOS-Bug (fehlender Stop-Report bei
+  Next/Prev/Shuffle) betraf Android-Musik NICHT.
+- **`PlayerViewModel`** (Video) rief `reportPlaybackStart`/`reportPlaybackStop`
+  bis dahin an KEINER Stelle auf — ein noch größeres Loch als der iOS-Bug
+  (dort fehlte der Stop-Report nur bei bestimmten Übergängen, hier
+  vollständig). Serverseitige Transcode-Sessions blieben dadurch bis zu
+  30 Min. mit voller Last aktiv (siehe `StopAllForItem`/`stopSuppressWindow`
+  im Server-Repo, CLAUDE.md „Playback" — der Fix dort setzt einen
+  Stop-Report voraus, den es hier nie gab).
+- Fix: Start wird jetzt direkt nach erfolgreichem `getPlayback()` gemeldet
+  (nur im Server-Streaming-Zweig, nicht bei lokalen Downloads —
+  `serverPlaybackReported`-Flag). Stop in `onCleared()`. **Wichtiger
+  Architektur-Unterschied zu Apples `PlayerView`:** dort wird beim
+  Next/Prev/Shuffle dieselbe View-Instanz wiederverwendet (deshalb musste
+  `teardown()` selbst den Stop melden) — auf Android navigiert
+  `onNextRandom` (`Navigation.kt`) zu einer NEUEN Route mit
+  `popUpTo(...){inclusive=true}`, wodurch die alte `PlayerViewModel`-Instanz
+  über Hilt zerstört wird. `onCleared()` ist hier also der EINE zuverlässige
+  Ort, der sowohl echtes Zurück-Navigieren als auch jeden Titelwechsel
+  abdeckt — kein Pendant zu Apples Mehrfach-Aufrufstellen-Problem nötig.
+  `viewModelScope` ist beim `onCleared()`-Aufruf schon storniert, deshalb
+  ein eigener kurzlebiger `CoroutineScope(SupervisorJob() + Dispatchers.IO)`
+  für den Fire-and-forget-Call.
+
+### Download-Auflösung + -Größe im Detail-Screen (seit 2026-09-14)
+
+User-Wunsch (plattformübergreifend, auch Mac/iOS/tvOS/Linux): "wenn ein
+Video heruntergeladen worden ist, soll auf der Infoseite des Filmes stehen,
+wie die Auflösung des Downloads ist, und die Größe" — die bestehende
+`FileInfoBlock`-Anzeige (`item.width/height/sizeBytes`) beschreibt die
+Server-Originaldatei, die seit "Optimierte Downloads" davon abweichen kann.
+`DetailState` bekam `downloadSizeBytes`/`downloadResolutionLabel`; Größe
+kommt direkt aus `DownloadEntity.fileSize` (Room), Auflösung wird per
+`MediaMetadataRetriever` (blockierend, deshalb `withContext(Dispatchers.IO)`
+in `DetailViewModel.load()`) aus der lokalen Datei gelesen — Room speichert
+dafür kein Feld. Gleiche Bucket-Formel wie `variantResLabel`/
+`resolutionLabel` an anderer Stelle in der App (Formel bewusst dupliziert,
+kein gemeinsamer Helper — Konvention in dieser Codebasis, siehe die drei
+anderen Fundstellen). Neue Zeile "Download: <Auflösung> · <Größe>" in
+`FileInfoBlock` (jetzt mit `state: DetailState`-Parameter, beide Aufrufer
+— Phone- und Tablet-Layout — angepasst).
+
+### Musik-Bibliotheken (kind=music), seit 2026-09-12 — volle Parität zu iOS
+
+Ausgangspunkt: User-Report "Musiktitel-Suche findet nichts" auf iOS/Browser
+führte zur Entdeckung, dass Android **gar keine** Musik-Unterstützung hatte
+(kein `artist`/`album`/`genre`/`musicAlbumId` auf `Item`, keine Album-Ansicht,
+keine Musik-Wiedergabe). User-Entscheidung: volle Parität zu iOS in einem
+Rutsch, inkl. echtem Hintergrund-Audio-Player (nicht nur der bestehende
+Video-Player wiederverwendet) — siehe Plan
+`~/.claude/plans/breezy-coalescing-corbato.md` (Server-Repo-Session) für die
+volle Herleitung/Exploration.
+
+- **Modelle** (`Models.kt`): `Item` um `artist/album/genre/trackNo/
+  musicAlbumId/year/lastPlayedAt` erweitert (additiv, nullable). Neue
+  `MusicAlbum`/`AlbumDetail`. `Playlist`/`CreatePlaylistRequest` um
+  `kind: String = "video"` erweitert (Server-Split video/music) —
+  bestehender `PlaylistsViewModel` ruft jetzt explizit `kind="video"` auf,
+  damit neue Musik-Playlists dort nicht mit auftauchen.
+- **API/Repository**: `GoldfishApi` um Album-/Genre-/Metadaten-Endpoints
+  + `playback/{id}/start|stop` ergänzt (Activity-Log-Parity, bisher von
+  KEINEM Client dieser App genutzt — bewusst NUR für Musik ergänzt, kein
+  Risiko für den bestehenden Video-Pfad). Neues `MusicRepository`
+  (Alben/Genres/Metadaten-Edit), `ItemRepository` um `genre`-Filter in
+  `getItems` + `kind`-Param in `getPlaylists`/`createPlaylist` erweitert.
+- **Hintergrund-Audio-Player** (die grösste Neuerung): `MusicPlaybackService
+  : MediaSessionService` (Media3 — `media3-session` war seit Langem eine
+  ungenutzte Gradle-Dependency) hält EINEN ExoPlayer + EINE MediaSession,
+  liefert Lockscreen-/Benachrichtigungs-Controls automatisch aus der
+  MediaItem-Metadata. `MusicPlayerController` (App-weites Singleton) haltet
+  die `MediaController`-Verbindung, ist die EINZIGE Stelle, die Transport-
+  Befehle fürs komplette App auslöst. Manifest: neuer `<service
+  foregroundServiceType="mediaPlayback">` + `FOREGROUND_SERVICE_MEDIA_
+  PLAYBACK`/`POST_NOTIFICATIONS`/`WAKE_LOCK`-Permissions.
+  `POST_NOTIFICATIONS` (API 33+) wird lazy beim ersten Track-Start
+  angefragt (`MainActivity`), Wiedergabe blockiert NIE darauf.
+- **Mini-Player**: die App hat KEINE Bottom-Nav-Scaffold — `MainActivity`
+  rendert `GoldfishNavHost` direkt. `MusicMiniPlayerBar` sitzt deshalb als
+  fixer Sibling UNTER dem NavHost in einer `Column` (nicht überlagernd),
+  überlebt dadurch jede Navigation ohne Pro-Screen-Wiring. Tap → `Screen.
+  NowPlaying` (voller Player: Scrub-Bar, Transport, Shuffle).
+  Positions-Anzeige läuft über `MusicPlayerController.pollPosition()`
+  (500ms-Timer im UI) — Media3 feuert keinen periodischen Zeit-Callback.
+- **UI**: `MusicLibraryScreen` (Album-Grid/-Liste + "Alle Titel"-Umschalter,
+  Genre-Filter, Sortierung Künstler/Album/Jahr + Richtung, "zuletzt
+  abgespielt zuerst" nur in Alle-Titel), `AlbumDetailScreen` (Play/Shuffle,
+  Track-Favorit vs. Album-Favorit — **zwei getrennte Server-Konzepte**, nie
+  auf denselben Button/Zustand mappen), eigener `MusicPlaylistsScreen`
+  (getrennt vom bestehenden Video-`PlaylistsScreen`, um den funktionierenden
+  Pfad nicht anzufassen), `EditTrackMetadataDialog`/`EditAlbumMetadataDialog`
+  (admin-only, eigene `music-metadata`/`albums/{id}/metadata`-Endpoints —
+  NICHT der TMDB-`metadata-manual`-Pfad für Filme/Serien). Neue wiederverwendete
+  Primitiven: `AlbumCard` (quadratisches Cover, nicht `VideoCard`) und
+  `MusicTrackRow` (EIN Zeilen-Renderer für Alle-Titel/Suche/Album-Tracklist/
+  Playlist-Inhalt).
+- **Suche fixiert**: `SearchScreen` zeigte Musik-Treffer bisher generisch
+  (kein Bug, da Android nie Album-Bündelung hatte) — rendert Musik-Items
+  jetzt über `MusicTrackRow` und spielt den Treffer direkt ab
+  (`SearchViewModel.playMusicSearchResult`), statt einen nicht-existenten
+  Musik-Detail-Screen zu öffnen.
+- **Navigation**: `HomeScreen`s `onNavigateToLibrary`-Callsite branched jetzt
+  auf `library.kind == "music"` → eigene `Screen.MusicLibrary`-Route (statt
+  die grosse, bereits komplexe `LibraryViewModel`/`LibraryScreen`
+  movies/tv/private-Statemaschine um eine 4. Verzweigung zu erweitern).
+- **Bewusst NICHT gebaut** (Scope-Grenze, User informiert): kein Offline-
+  Sync für Musik (der bestehende `OfflineRepository`/Room-Offline-Pfad ist
+  movies/tv/private-spezifisch) — reine Online-Wiedergabe für's Erste.
+- **Noch nicht auf echtem Gerät getestet** (kein Emulator/Device in dieser
+  Session verfügbar) — `./gradlew :app:assembleDebug` läuft grün, aber
+  Lockscreen-Controls/Benachrichtigung/Hintergrund-Persistenz sollten vor
+  einem Release manuell auf einem echten Gerät verifiziert werden.
+- **Nachgezogene Parität (gleicher Tag, versionCode 106, 1.3.0):** drei beim
+  ersten Durchgang übersehene iOS-Features ergänzt.
+  - **„Zu Playlist hinzufügen"** (`AddToPlaylistDialog`/`AddToPlaylistViewModel`,
+    neuer Server-Endpoint-Wrapper `ItemRepository.addPlaylistItem` →
+    `POST /api/playlists/{id}/items`) — existierte in der App bis dahin
+    **für gar keine** Bibliothek (auch Video-Playlists hatten diesen Button
+    nie). Neuer `PlaylistAdd`-Button in `MusicTrackRow`, verdrahtet in
+    `AlbumDetailScreen`, `MusicLibraryScreen` (Alle-Titel/Suche-Treffer) und
+    `SearchScreen` (globale Suche). Dialog erlaubt bestehende Musik-Playlist
+    wählen ODER direkt eine neue anlegen + Titel hineinlegen.
+  - **Warteschlange im Now-Playing-Screen**: `MusicPlayerUiState.queue` wurde
+    zwar schon gehalten, aber nie angezeigt — `NowPlayingScreen` zeigt jetzt
+    die volle Queue unter den Transport-Controls, aktueller Titel hervorgehoben,
+    Tap springt direkt dorthin (`MusicPlayerController.skipToQueueIndex`,
+    `mc.seekTo(index, 0L)`).
+  - **Repeat-Modus-Umschalter**: `MusicPlayerController.toggleRepeatMode()`
+    zyklt AUS→ALLE→EINZELN (Media3 `Player.repeatMode`), neuer Button in
+    `NowPlayingScreen` (Repeat/RepeatOne-Icon je nach Modus).
+
+### Stand 1.2.67
+
+- **Bibliotheken zusammenlegen (vC 98 Server+App, vC 99 lokale Libs):** In
+  den Einstellungen können je 2 Bibliotheken gleichen Typs virtuell
+  zusammengelegt werden (Server+Server ODER Lokal+Lokal). Im HomeScreen
+  erscheinen separate „🔗 Lib1 + Lib2"-Kacheln; wenn eine Lib nicht
+  verfügbar ist, ausgegraut (kein Fehler). Zufallsplay, Sortierung etc.
+  funktionieren über beide. Server: `ItemFilter.LibraryIDs []int64` +
+  `IN (…)`-Klausel in `ListItems`/`randomItem`; API akzeptiert mehrere
+  `?libraryId=` Query-Params. App: `mergedServerLibraryIds` +
+  `mergedLocalLibraryIds` in SettingsDataStore; `GoldfishApi`/
+  `ItemRepository` mit `List<Int>?`; `LibraryViewModel.loadMerged()`,
+  `LocalLibraryViewModel.loadMerged()` (Items aus beiden Libs kombiniert
+  flach); Routen `MergedLibrary`, `PlayerRandomMerged`,
+  `MergedLocalLibrary`. Settings-UI in zwei Gruppen (📡 Server, 📁 Lokal).
+- **Online-Lib „Zuletzt gespielt" — App rief /played nie (vC 96):** Server
+  trackt `user_item_state.last_played_at` NUR via
+  `POST /api/items/{id}/played` (`TouchLastPlayed`); Resume/Watched setzen
+  es NICHT. Der **Browser** ruft das beim Player-Open (player.js), die
+  **App tat es nicht** → in der App gespielte Videos erschienen nie in der
+  Online-Sortierung „Zuletzt gespielt". Fix: `GoldfishApi.markPlayed` +
+  `ItemRepository.markPlayed` (invalidiert items-/home-Cache),
+  `PlayerViewModel.load` ruft es fire-and-forget beim Öffnen.
+- **Lokale Lib: Sort „Zuletzt gespielt" (vC 91):** lokale Bibliotheken
+  haben jetzt auch den Sort `LOCAL_SORT_PLAYED` — flache library-weite
+  Liste der zuletzt im lokalen Player geöffneten Items. Neue Spalte
+  `local_items.lastPlayedAt` (LocalAppDatabase v5, MIGRATION_4_5), beim
+  `LocalPlayerViewModel.load` gestempelt (gilt für ExoPlayer + VLC), beim
+  Re-Scan erhalten.
+  **Fix vC 92:** Nach Player-Rückkehr wurde die lokale Liste NICHT neu
+  geladen (Idempotenz-Guard in `load()` blockt Refresh zum Scroll-Schutz).
+  vC 92 (LifecycleResumeEffect → `refreshCurrent()`) reichte NICHT
+  zuverlässig.
+  **Fix vC 93:** `LocalLibraryRepository` hat jetzt einen
+  `itemMutated`-SharedFlow, der nach jedem `updateItem` emittiert;
+  `LocalLibraryViewModel` beobachtet ihn im `init` und ruft
+  `refreshCurrent()` (stilles force-Reload).
+  **ECHTE Ursache + Fix vC 94:** vC 92/93 reichten nicht, weil es KEIN
+  Refresh-Problem war — der `lastPlayedAt`-Stempel wurde wieder
+  überschrieben. `recoverMissingThumbnails` UND `LocalEnricher.applyHit`
+  schrieben Items per `update(item.copy(...))` als GANZE Zeile aus einem
+  VERALTETEN Snapshot zurück → clobberten den parallel gesetzten
+  lastPlayedAt (und watched/resume) auf 0. Fix: gezielte
+  Einzelspalten-Updates `LocalItemDao.setLastPlayed`/`setThumbnailPath`;
+  Stempel via `repository.markLocalPlayed` (statt updateItem(copy));
+  recoverMissingThumbnails nutzt setThumbnailPath; applyHit liest das Item
+  frisch (getItem) bevor es die Zeile schreibt. **LEHRE: Hintergrund-Jobs
+  NIE eine ganze Entity-Zeile aus einem alten Snapshot zurückschreiben —
+  gezielte Spalten-Updates nutzen.**
+- **Player Favorit + Löschen (vC 89):** Im Server-Player oben rechts ein
+  Favorit-Toggle (♥, optimistisch) und — Admin-only — ein Lösch-Button (🗑)
+  mit Bestätigungsdialog (`DELETE /api/items/{id}?deleteFile=true`); nach
+  Erfolg `state.deleted=true` → Screen navigiert zurück.
+- **Flache library-weite Sort-Modi (vC 89):** „Zuletzt abgespielt"/
+  „Zuletzt hinzugefügt"/„Laufzeit" zeigen jetzt — wie im Browser — die
+  Top-Videos der GANZEN Library, unabhängig von Ordner/Staffel.
+  `isFlatSortMode()` in LibraryViewModel. **Offline (vC 90):** auch
+  `doReloadOffline` behandelt die drei Modi via
+  `OfflineRepository.itemsSortedFlat` aus Room. „Zuletzt abgespielt" nutzt
+  ein NEUES lokales `downloads.lastPlayedAt` (DB v6), das
+  `PlayerViewModel` beim Abspielen eines Downloads via
+  `DownloadRepository.markPlayed` stempelt.
+- **Drilldown-Toggle (vC 64):** Long-Press auf eine Folder-Kachel
+  (Admin-only) öffnet Bestätigungsdialog "Unterordner als Ebene
+  anzeigen?". Pendant zum Hover-⚙ im Browser.
+- **Bugfix lokale-Lib-Thumbnails (vC 64):** Frame-Vorschaubilder lagen in
+  `cacheDir/local-thumbs`, das Android unter Speicherdruck löscht. Jetzt
+  `filesDir/local-thumbs` plus `recoverMissingThumbnails`-Background-Job.
+- **Lokale Bibliotheken (SAF)** mit eigener Room-DB, NameParser-Port,
+  MediaProbe via MediaMetadataRetriever, TMDB-Anreicherung via
+  Server-Proxy, Frame-Thumbnails als Fallback, Show→Staffel→Folge-
+  Navigation, Show-Re-Match-Dialog, Zufallswiedergabe pro Lib/Folder,
+  Long-Press-Delete (SAF + DB), ansicht-scoped Suchfeld in der Lib.
+- **Privat-Libs gruppieren nach Channel-Folder**, Items sortiert nach
+  `releasedAtMs ?: modifiedTime` DESC (neueste oben); Container-DATE-Tag
+  (yt-dlp MKV-DATE `YYYYMMDD`, mp4 creation_time) per MediaProbe
+  ausgelesen + in `local_items.releasedAtMs` persistiert.
+- **Offline-Verbesserungen**: `library_folder_cache` +
+  `library_seasons_cache` cachen Show-Poster + komplette SeasonResponse
+  persistent; Offline-Mode filtert Staffel-Ansicht auf owned-Episoden.
+- **Re-Match-Sync-Button (↻)** im Show-Header von Server-Libs nach
+  Browser-seitiger Korrektur (`?refresh=true`).
+- **Globale Suche** (🔍 in der HomeScreen-Topbar) über Server-Libs +
+  Offline-Downloads + lokale Libs.
+- **Long-Press-Delete für Downloads** in jeder Lib-Ansicht + Settings-
+  Button „Alle Downloads entfernen" mit bulk-File-Cleanup.
+- **`channelLabelOnTop`-Toggle** aus Server respektiert.
+- **HomeScreen reagiert auf Item-Mutations** (`itemUpdated`-SharedFlow,
+  300ms debounce) → „Fortsetzen"/„Als nächstes"-Strips refreshen nach
+  watched/favorite/resume statt stale-Items zu behalten.
+- Setup-Wizard (Server-URL + Login), Persistent-Auth, Cast/AirPlay aus
+  Browser-only (bewusst nicht in der App).
+
+### Snapshot Stand 1.1.3 (Basis)
+
+- Library-Grid (adaptive Spalten Tablet/Phone), Filter (Sort/Watched/
+  Favorit/Auflösung/Rating/Flach/Staffeln/Zufall/Auswahl), Detail-Screen
+  mit Cast-Strip.
+- **Buchstaben-Sidebar** rechts bei Sort=Title und ≥10 Kacheln — sucht
+  zuerst in Show-Folders (TV-Lib), dann in Items (wie im Browser).
+- **Sortier-Richtung** wird explizit als `dir=asc|desc` gesendet, nicht
+  client-side gereverst.
+- Player: Media3/ExoPlayer, eigenes Compose-Settings-Zahnrad oben rechts
+  (synced mit ControlBar), Quality-Auswahl, **Untertitel-Dropdown**
+  (Text-VTT, Whisper-VTT, PGS bei Direct Play via ExoPlayer-PgsParser),
+  Trickplay-Hover beim Scrub-Drag, Resume-Dialog (Daten aus separatem
+  `/resume`-Endpoint).
+- Show-Header in der Staffel-Übersicht mit Beschreibung.
+- Episoden-Grid mit Auflösung-Badges und Offline-Indikator.
+- Download via SAF-Picker („Ordner auswählen…") in Settings,
+  Application-Scope-Coroutine, Progress-Ring auf der Kachel + grünes
+  CloudDone nach Abschluss.
+- Performance: in-Memory ApiCache (TTL pro Endpoint), Coil 1 GB
+  Disk-Cache, OkHttp HTTP-Cache (User-konfigurierbar).
+- Adaptive Launcher-Icon (Goldfisch CC-BY 4.0 Twemoji).
+- Versionsnummer aus `BuildConfig.VERSION_NAME` im Settings-Screen
+  sichtbar.
+
