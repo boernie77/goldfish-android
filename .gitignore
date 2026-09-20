@@ -12,3 +12,11 @@ keystore.properties
 
 # Persönliche Notizen mit Zugangsdaten — gehören nur auf den eigenen Rechner.
 Gitignore - wichtige Passw*
+
+# .claude/ ist lokal (Settings), aber die Skills sind versionierte Anweisungen — die bleiben
+# bewusst getrackt, damit Claude Code und Hermes Agent dieselbe Quelle lesen.
+/.claude/*
+!/.claude/skills/
+
+# Projektlokale Hermes-Skills (Symlink auf .claude/skills — nur lokal)
+/.hermes/
