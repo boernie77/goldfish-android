@@ -100,3 +100,28 @@ Title-Sort; Resume-Position kommt aus dem separaten `/resume`-Endpoint,
 nicht aus dem Item-JSON; Untertitel-Track-Codes (`webvtt-generated` für
 Whisper, `subrip`/`mov_text` für Text, `pgssub` für Bilder) müssen 1:1
 erkannt werden.
+
+## Gesehen-Haken der Kachel live nachziehen (alle Listen)
+
+Wird ein Item außerhalb der Liste umgeschaltet (Player-Ende ab 90 % Laufzeit, Detail-Ansicht,
+Staffel-Bulk), muß die Kachel in Bibliothek/Ordner/Staffel/Suche **sofort** grün werden — nicht
+erst beim Verlassen und erneuten Betreten der Ansicht. Der Browser macht das über `player.js` →
+`markWatchedNow` → `silentlyRefreshItem` (ersetzt genau diese eine Kachel im DOM).
+
+Die App hat dafür den Bus `ItemRepository.itemUpdated`: `setWatched`/`setFavorite` invalidieren
+ihre Caches und senden die Item-ID. Jedes ViewModel mit einer Item-Liste muß ihn abonnieren und
+das betroffene Item ersetzen — `DetailViewModel` und `HomeViewModel` taten das schon,
+`LibraryViewModel` (Kacheln in Bibliothek, Ordner und Staffel über `items`/`episodeItems`) und
+`SearchViewModel` fehlten (User-Report 2026-09-23: „im Infofeld wird der Haken gesetzt, die
+Kachel bleibt grau").
+
+- **Kein voller `reload()` als Reaktion**: der setzt `isLoading = true` und die
+  Bibliotheksansicht zeigt dann einen Vollbild-Ladekreis — beim Filmende ein sichtbares
+  Flackern. Stattdessen `getItem(id)` (Cache ist bereits invalidiert) holen und das Item in
+  `items`/`episodeItems` bzw. `serverResults`/`offlineResults` ersetzen.
+- Mit `debounce(200)` sammeln, sonst löst eine Staffel-Bulk-Aktion einen Abruf je Folge aus
+  (gleiches Muster wie `HomeViewModel`).
+- Lokale (SAF-)Bibliotheken laufen getrennt und sind abgedeckt:
+  `LocalLibraryRepository.itemMutated` → `LocalLibraryViewModel.refreshCurrent()`.
+- **Beim Bauen neuer Listen darauf prüfen:** eine Kachel, die ihren `Item`-Schnappschuß vom
+  Ladezeitpunkt festhält, ist nach jeder Mutation veraltet.

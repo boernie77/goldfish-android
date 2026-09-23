@@ -16,6 +16,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -60,6 +61,32 @@ class SearchViewModel @Inject constructor(
         viewModelScope.launch {
             val s = settingsDataStore.settings.first()
             _state.update { it.copy(baseUrl = s.serverUrl, offlineOnly = s.offlineOnly) }
+        }
+
+        // Item-Mutationen einspielen — die Treffer-Kacheln hielten ihren Item-Stand vom
+        // Suchzeitpunkt fest, eine im Player gesehene Folge blieb in der Trefferliste grau.
+        // Gleiches Muster wie LibraryViewModel.patchItemState (User-Report 2026-09-23).
+        viewModelScope.launch {
+            itemRepository.itemUpdated
+                .debounce(200)
+                .collect { id -> patchItem(id) }
+        }
+    }
+
+    /** Ersetzt ein bekanntes Treffer-Item durch den frischen Server-Stand (nur Anzeige-Daten). */
+    private suspend fun patchItem(itemId: Int) {
+        val st = _state.value
+        val known = st.serverResults.any { it.id == itemId } || st.offlineResults.any { it.id == itemId }
+        if (!known) return
+        val fresh = when (val r = itemRepository.getItem(itemId)) {
+            is Result.Success -> r.data
+            is Result.Error -> return
+        }
+        _state.update {
+            it.copy(
+                serverResults = it.serverResults.map { old -> if (old.id == fresh.id) fresh else old },
+                offlineResults = it.offlineResults.map { old -> if (old.id == fresh.id) fresh else old }
+            )
         }
     }
 

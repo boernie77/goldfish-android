@@ -182,6 +182,46 @@ class LibraryViewModel @Inject constructor(
                 _state.update { it.copy(activeDownloads = active) }
             }
         }
+
+        // Item-Mutationen (watched/favorite) einspielen — User-Report 2026-09-23: "nach dem
+        // Ansehen wird im Infofeld der Haken gesetzt, die Kachel aber erst grün, wenn man den
+        // Ordner verlaesst und neu betritt" (gemeldet am iOS-Client, hier dasselbe Muster).
+        // Der Player markiert am Ende automatisch als gesehen (PlayerViewModel →
+        // ItemRepository.setWatched), diese Liste hielt aber ihre Item-Schnappschuesse vom
+        // Ladezeitpunkt fest. Debounce wie HomeViewModel: eine Bulk-Aktion (Staffel komplett
+        // gesehen) loest sonst einen Abruf pro Folge aus.
+        viewModelScope.launch {
+            itemRepository.itemUpdated
+                .debounce(200)
+                .collect { id -> patchItemState(id) }
+        }
+    }
+
+    /**
+     * Spielt EIN geaendertes Item in den aktuellen Listen-State ein, ohne die ganze Liste neu
+     * zu laden (ein voller `reload()` waere hier falsch: er setzt `isLoading = true`, und die
+     * Bibliotheksansicht zeigt dann einen Vollbild-Ladekreis — beim Filmende ein sichtbares
+     * Flackern). Das Item wird frisch vom Server geholt (`setWatched` hat den Cache bereits
+     * invalidiert), dann in `items` UND `episodeItems` ersetzt; damit faerbt sich dieselbe
+     * Kachel in Bibliotheks-, Ordner- und Episodenansicht.
+     */
+    private suspend fun patchItemState(itemId: Int) {
+        val fresh = when (val r = itemRepository.getItem(itemId)) {
+            is Result.Success -> r.data
+            is Result.Error -> return
+        }
+        val st = _state.value
+        val known = st.items.any { it.id == fresh.id } ||
+            st.episodeItems.values.any { it.id == fresh.id }
+        if (!known) return
+        _state.update {
+            it.copy(
+                items = it.items.map { old -> if (old.id == fresh.id) fresh else old },
+                episodeItems = it.episodeItems.mapValues { (_, old) ->
+                    if (old.id == fresh.id) fresh else old
+                }
+            )
+        }
     }
 
     /** Liefert die Set der Top-Folder-Segmente in einer Library, fuer die
