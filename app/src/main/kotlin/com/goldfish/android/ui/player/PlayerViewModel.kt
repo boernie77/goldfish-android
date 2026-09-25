@@ -60,7 +60,14 @@ data class PlayerState(
     // Zuletzt gewähltes Auflösungsprofil (Persistenz: SettingsDataStore) —
     // wird NUR beim Autoplay-Start der nächsten Folge angewandt, ein normal
     // geöffneter Titel startet weiterhin ohne Begrenzung (Browser-Parität).
-    val lastPlaybackProfile: String? = null
+    val lastPlaybackProfile: String? = null,
+    // --- "Vorspann überspringen" (Server: internal/api/introskip.go) ---
+    // Absolutes Zeitfenster des erkannten Vorspanns in Millisekunden.
+    // Beide null = keine Erkennung für dieses Item → es gibt keinen Button.
+    // Wird bei JEDEM loadItem() zuerst geleert, damit beim In-Place-Wechsel
+    // zur nächsten Folge nie das Fenster der Vorfolge stehen bleibt.
+    val introStartMs: Long? = null,
+    val introEndMs: Long? = null
 )
 
 @HiltViewModel
@@ -150,7 +157,17 @@ class PlayerViewModel @Inject constructor(
         val admin = authRepository.getCurrentStatus()?.isAdmin ?: false
         // Neue Folge → ein früheres "Abbrechen" gilt nicht mehr.
         nextEpisodeSuppressedItemId = null
-        _state.update { it.copy(isLoading = true, errorMessage = null, trickplayFrames = emptyList(), isAdmin = admin) }
+        _state.update {
+            it.copy(
+                isLoading = true,
+                errorMessage = null,
+                trickplayFrames = emptyList(),
+                isAdmin = admin,
+                // Vorspann-Fenster der vorigen Folge sofort verwerfen.
+                introStartMs = null,
+                introEndMs = null
+            )
+        }
         // Trickplay parallel im Hintergrund laden — non-blocking, UI startet ohne darauf zu warten.
         // Eigener viewModelScope-Job (loadItem ist eine suspend-Funktion ohne
         // CoroutineScope-Receiver): das Ergebnis wird verworfen, wenn inzwischen
@@ -181,6 +198,23 @@ class PlayerViewModel @Inject constructor(
             return
         }
 
+        // "Vorspann überspringen" (Browser-Parität: maybeToggleIntroSkip in
+        // player.js). Fenster NUR übernehmen, wenn der Server BEIDE Felder
+        // liefert und das Fenster plausibel ist (Ende > Start) — sonst bleibt
+        // es null und es erscheint kein Button. Offline/aus dem Cache
+        // geladene Items haben die Felder nicht (Listen-Endpoints liefern sie
+        // nicht) → dort gibt es die Funktion schlicht nicht.
+        var introStartMs: Long? = null
+        var introEndMs: Long? = null
+        val introStartSec = item.introStartSec
+        val introEndSec = item.introEndSec
+        if (introStartSec != null && introEndSec != null &&
+            introEndSec > introStartSec && introEndSec > 0.0
+        ) {
+            introStartMs = (introStartSec * 1000).toLong().coerceAtLeast(0L)
+            introEndMs = (introEndSec * 1000).toLong()
+        }
+
         // Server-seitig als "zuletzt gespielt" markieren — wie der Browser
         // beim Player-Open. Ohne diesen Call setzt die App nie
         // last_played_at, und in der App gespielte Videos erscheinen nie in
@@ -204,7 +238,9 @@ class PlayerViewModel @Inject constructor(
                     isLoading = false,
                     item = item,
                     localFilePath = download.localPath,
-                    resumePositionMs = resumeMs
+                    resumePositionMs = resumeMs,
+                    introStartMs = introStartMs,
+                    introEndMs = introEndMs
                 )
             }
             return
@@ -230,7 +266,9 @@ class PlayerViewModel @Inject constructor(
                         playbackInfo = info,
                         resumePositionMs = resumeMs,
                         subtitleOptions = subOptions,
-                        selectedSubtitleKey = "off"
+                        selectedSubtitleKey = "off",
+                        introStartMs = introStartMs,
+                        introEndMs = introEndMs
                     )
                 }
                 // Nur im Server-Streaming-Zweig (nicht bei `download != null`
@@ -444,7 +482,9 @@ class PlayerViewModel @Inject constructor(
                 selectedMode = null,
                 selectedProfile = null,
                 trickplayFrames = emptyList(),
-                errorMessage = null
+                errorMessage = null,
+                introStartMs = null,
+                introEndMs = null
             )
         }
         // Auflösungsprofil der vorigen Folge übernehmen (Server: ?profile=…);

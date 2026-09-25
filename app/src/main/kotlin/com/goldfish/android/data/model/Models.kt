@@ -89,7 +89,14 @@ data class Item(
     val year: Int? = null,
     // user_item_state.last_played_at — fuer den "zuletzt abgespielt zuerst"-Filter
     // in der "Alle Titel"-Ansicht.
-    val lastPlayedAt: String? = null
+    val lastPlayedAt: String? = null,
+    // --- Vorspann-Erkennung (Server-Repo: internal/api/introskip.go) ---
+    // Absolute Sekunden im Video. Kommen NUR aus GET api/items/{id}
+    // (Server-Handler GetItemFor), NICHT aus den Listen-Endpoints — in Items
+    // aus Grid/Home/Playlists sind sie deshalb IMMER null. Null bedeutet
+    // "keine Erkennung" und ist der Normalfall, kein Fehler.
+    val introStartSec: Double? = null,
+    val introEndSec: Double? = null
 ) {
     val displayTitle: String
         get() = metadata?.title?.takeIf { it.isNotBlank() } ?: title

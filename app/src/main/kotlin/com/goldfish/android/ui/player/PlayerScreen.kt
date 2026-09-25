@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -52,6 +53,7 @@ import androidx.media3.ui.PlayerView
 import com.goldfish.android.data.api.ApiClientProvider
 import com.goldfish.android.ui.theme.GoldfishOrange
 import dagger.hilt.android.EntryPointAccessors
+import kotlinx.coroutines.delay
 
 @Composable
 fun PlayerScreen(
@@ -80,6 +82,25 @@ fun PlayerScreen(
     var scrubPositionMs by remember { mutableStateOf<Long?>(null) }
     // (left, top, width) der TimeBar im PlayerView-Koordinatensystem
     var timeBarBounds by remember { mutableStateOf(Triple(0, 0, 0)) }
+
+    // "Vorspann überspringen": absolute Wiedergabeposition (ms), vom
+    // GoldfishPlayer im 500-ms-Takt gemeldet, plus der offene Seek-Wunsch.
+    // Bewusst lokaler Compose-State und NICHT im PlayerState — eine
+    // 2x/Sekunde aktualisierte Position im StateFlow würde den ganzen Screen
+    // rekomponieren lassen.
+    // null = noch kein Tick eingetroffen → ausdrücklich KEIN Button. Ein
+    // Startwert von 0 wäre eine echte Position und liesse den Button bei einem
+    // Vorspann ab Sekunde 0 kurz aufblitzen, obwohl der Player gerade an der
+    // Resume-Position mitten im Film startet.
+    var absolutePositionMs by remember { mutableStateOf<Long?>(null) }
+    var introSeekRequestMs by remember { mutableStateOf<Long?>(null) }
+
+    // Folgenwechsel (In-Place-Autoplay) → Position sofort verwerfen, damit der
+    // Button nicht kurz mit der Position der Vorfolge auftaucht.
+    LaunchedEffect(state.item?.id) {
+        absolutePositionMs = null
+        introSeekRequestMs = null
+    }
 
     Box(
         modifier = Modifier
@@ -129,6 +150,10 @@ fun PlayerScreen(
                     onControllerVisibilityChanged = { controllerVisible = it },
                     onScrubPositionChanged = { scrubPositionMs = it },
                     onTimeBarBoundsChanged = { l, t, w -> timeBarBounds = Triple(l, t, w) },
+                    positionTickEnabled = state.introEndMs != null,
+                    onAbsolutePositionTick = { absolutePositionMs = it },
+                    seekRequestMs = introSeekRequestMs,
+                    onSeekRequestHandled = { introSeekRequestMs = null },
                     modifier = Modifier.fillMaxSize()
                 )
 
@@ -351,6 +376,34 @@ fun PlayerScreen(
                     }
                 }
 
+                // "Vorspann überspringen" (Server: internal/api/introskip.go;
+                // Browser: maybeToggleIntroSkip / wireIntroSkipOverlayOnce in
+                // player.js). Sichtbar GENAU solange die absolute Position im
+                // erkannten Fenster liegt — absichtlich unabhängig davon, ob
+                // die Media3-ControlBar gerade eingeblendet ist: im Browser
+                // liegt der Pill ebenfalls frei im Videobild.
+                // Klick springt auf das Fensterende; danach verschwindet der
+                // Button von selbst, weil die Position aus dem Fenster läuft
+                // (kein eigenes "weggeklickt"-Flag, exakt wie im Browser).
+                val introStartMs = state.introStartMs
+                val introEndMs = state.introEndMs
+                val introPosMs = absolutePositionMs
+                if (introStartMs != null && introEndMs != null && introPosMs != null &&
+                    introPosMs >= introStartMs && introPosMs < introEndMs
+                ) {
+                    IntroSkipButton(
+                        onClick = {
+                            introSeekRequestMs = introEndMs
+                            // Position optimistisch mitziehen: sonst bliebe der
+                            // Button nach dem Klick bis zum nächsten 500-ms-Tick
+                            // stehen, obwohl das Bild schon gesprungen ist. Der
+                            // nächste echte Tick korrigiert den Wert ohnehin.
+                            absolutePositionMs = introEndMs
+                        },
+                        modifier = Modifier.align(Alignment.BottomEnd)
+                    )
+                }
+
                 // "Nächste Folge automatisch starten" (User-Wunsch 2026-09-18):
                 // Hinweis-Overlay mit 10-Sekunden-Countdown am Ende einer
                 // Serienfolge. Erscheint NUR, wenn der Pro-Konto-Schalter aktiv
@@ -437,6 +490,48 @@ private fun NextEpisodeOverlay(
     }
 }
 
+/**
+ * „Vorspann überspringen"-Pille im Videobild — Pendant zum Intro-Skip-Button
+ * in player.js. Bewusst gross, mit Goldfish-Orange hinterlegt und unten rechts
+ * über der Steuerleiste platziert (bequemes Touch-Ziel auf dem Tablet) und
+ * NICHT in der Media3-ControlBar: die blendet sich nach wenigen Sekunden aus,
+ * der Hinweis muss aber das ganze Vorspann-Fenster über sichtbar bleiben.
+ */
+@Composable
+private fun IntroSkipButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .padding(end = 24.dp, bottom = 96.dp)
+            .navigationBarsPadding()
+    ) {
+        Button(
+            onClick = onClick,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = GoldfishOrange,
+                contentColor = Color.Black
+            ),
+            shape = RoundedCornerShape(24.dp),
+            contentPadding = PaddingValues(horizontal = 24.dp, vertical = 14.dp)
+        ) {
+            Icon(
+                Icons.Filled.SkipNext,
+                contentDescription = null,
+                tint = Color.Black
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = "Vorspann überspringen",
+                style = MaterialTheme.typography.titleSmall.copy(
+                    fontWeight = FontWeight.SemiBold
+                )
+            )
+        }
+    }
+}
+
 @Composable
 private fun GoldfishPlayer(
     context: Context,
@@ -453,6 +548,15 @@ private fun GoldfishPlayer(
     onControllerVisibilityChanged: (Boolean) -> Unit = {},
     onScrubPositionChanged: (Long?) -> Unit = {},
     onTimeBarBoundsChanged: (left: Int, top: Int, width: Int) -> Unit = { _, _, _ -> },
+    // Positions-Ticker für das "Vorspann überspringen"-Overlay. Läuft nur,
+    // wenn das Item ein Vorspann-Fenster hat — sonst kein Poll, kein Aufwand.
+    positionTickEnabled: Boolean = false,
+    onAbsolutePositionTick: (Long) -> Unit = {},
+    // Seek-Wunsch aus der Compose-UI (absolute ms). Wird ausgeführt und dann
+    // über onSeekRequestHandled quittiert, damit der Aufrufer ihn auf null
+    // zurücksetzen kann.
+    seekRequestMs: Long? = null,
+    onSeekRequestHandled: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val apiClientProvider = remember {
@@ -702,6 +806,32 @@ private fun GoldfishPlayer(
             onPositionChanged(exoPlayer.currentPosition + virtualOffset.value)
             exoPlayer.release()
         }
+    }
+
+    // Absolute Wiedergabeposition im 500-ms-Takt nach oben melden — Grundlage
+    // für das "Vorspann überspringen"-Overlay (Browser: timeupdate-Handler
+    // maybeToggleIntroSkip in player.js). Gelesen wird über wrappedPlayer:
+    // dessen getCurrentPosition() rechnet den virtualOffset der laufenden
+    // Transcode-Session bereits ein, liefert also die ABSOLUTE Filmposition.
+    val currentOnTick by rememberUpdatedState(onAbsolutePositionTick)
+    LaunchedEffect(positionTickEnabled) {
+        if (!positionTickEnabled) return@LaunchedEffect
+        while (true) {
+            currentOnTick(wrappedPlayer.currentPosition)
+            delay(500L)
+        }
+    }
+
+    // Seek-Wunsch aus der Compose-UI (aktuell nur "Vorspann überspringen").
+    // Bewusst über wrappedPlayer.seekTo: dort steckt die komplette
+    // Transcode-Logik (lokaler Seek, wenn das Ziel im schon produzierten
+    // HLS-Material liegt, sonst ffmpeg-Neustart samt virtualOffset).
+    // Es wird NICHT play() gerufen — wer pausiert hat, bleibt pausiert
+    // (Browser setzt ebenfalls nur currentTime).
+    LaunchedEffect(seekRequestMs) {
+        val target = seekRequestMs ?: return@LaunchedEffect
+        wrappedPlayer.seekTo(target)
+        onSeekRequestHandled()
     }
 
     // Untertitel-Auswahl an ExoPlayer durchreichen. Sprach-basierter Selektor
