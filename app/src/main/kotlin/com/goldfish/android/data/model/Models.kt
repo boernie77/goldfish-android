@@ -46,7 +46,12 @@ data class Metadata(
     @Json(name = "runtimeMin") val runtime: Int? = null,
     val backdropPath: String? = null,
     val imdbId: String? = null,
-    val tmdbId: Int? = null
+    val tmdbId: Int? = null,
+    // Episode → Show (metadata.parent_id im Server). Grundlage fuer die
+    // Serien-Sammelkachel im Person-Filter (User-Wunsch 2026-09-20: Episoden-
+    // Treffer nach Serie buendeln statt einzeln zu zeigen) und fuer den
+    // klickbaren Serienlink in der Episoden-Detailansicht.
+    val parentId: Int? = null
 )
 
 @JsonClass(generateAdapter = true)
@@ -380,6 +385,20 @@ data class CastMember(
     val character: String = "",
     val role: String = "",     // "main" | "guest"
     val order: Int = 0
+)
+
+/** Ergebnis von GET /api/search/people (aufgegliederte Trefferanzeige,
+ *  User-Wunsch 2026-09-20 — Server v1.4.22). Eigenstaendiges Modell statt
+ *  [CastMember]-Wiederverwendung, da die Felder abweichen (id/tmdbId/name/
+ *  profilePath ohne character/role/order — Server liefert eine reine
+ *  Personen-Liste, keine Rollen). Browser-Pendant: cards.js
+ *  renderSearchPersonCard / internal/model/types.go Person. */
+@JsonClass(generateAdapter = true)
+data class PersonSearchResult(
+    val id: Long = 0,
+    val tmdbId: Long = 0,
+    val name: String = "",
+    val profilePath: String = ""
 )
 
 /** TMDB-Suchergebnis vom Goldfish-Server (/api/metadata/search).

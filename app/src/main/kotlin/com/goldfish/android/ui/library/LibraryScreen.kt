@@ -56,6 +56,7 @@ fun LibraryScreen(
     onNavigateHome: () -> Unit = {},
     onBack: () -> Unit,
     onPlayRandom: ((Int, Int) -> Unit)? = null,
+    onOpenPerson: (tmdbId: Long, name: String) -> Unit = { _, _ -> },
     viewModel: LibraryViewModel = hiltViewModel()
 ) {
     LaunchedEffect(libraryId, folder, drilldownActive, mergedLibraryIds) {
@@ -465,6 +466,31 @@ fun LibraryScreen(
                         horizontalArrangement = Arrangement.spacedBy(gap),
                         verticalArrangement = Arrangement.spacedBy(gap)
                     ) {
+                        // Aufgegliederte Trefferanzeige (Server v1.4.22): Schauspieler
+                        // GANZ OBEN, nur bei aktiver Suche + Treffern — analog SearchScreen
+                        // und Browser (cards.js appendSearchResultCards).
+                        if (state.searchQuery.isNotBlank() && state.personResults.isNotEmpty()) {
+                            item(span = { GridItemSpan(columns) }) {
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text(
+                                        text = "🎭 Schauspieler (${state.personResults.size})",
+                                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                                        color = GoldfishOrange,
+                                        modifier = Modifier.padding(top = 4.dp, bottom = 2.dp)
+                                    )
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .horizontalScroll(rememberScrollState()),
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        state.personResults.forEach { person ->
+                                            PersonSearchCard(person) { onOpenPerson(person.tmdbId, person.name) }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         // Filter-Header zeigt aktiven Buchstaben + Reset-Knopf
                         state.alphaFilter?.let { letter ->
                             item(span = { GridItemSpan(columns) }) {
@@ -1319,5 +1345,62 @@ private fun FolderCard(
                 }
             }
         }
+    }
+}
+
+/** Schauspieler-Kachel in der library-scoped aufgegliederten Trefferanzeige
+ *  (Server v1.4.22). Gleiches Layout wie SearchScreen.PersonResultCard —
+ *  hier bewusst dupliziert statt geteilt (Konvention dieser Codebasis, siehe
+ *  resLabel/variantResLabel-Duplizierung in CLAUDE.md). */
+@Composable
+private fun PersonSearchCard(
+    person: com.goldfish.android.data.model.PersonSearchResult,
+    onClick: () -> Unit
+) {
+    val imageUrl = person.profilePath.takeIf { it.isNotBlank() }
+        ?.let { "https://image.tmdb.org/t/p/w185$it" }
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.width(84.dp).clickable(onClick = onClick)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(76.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+            contentAlignment = Alignment.Center
+        ) {
+            if (imageUrl != null) {
+                AsyncImage(
+                    model = imageUrl,
+                    contentDescription = person.name,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Filled.Person,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(32.dp)
+                )
+            }
+        }
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = person.name,
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+        )
+        Text(
+            text = "🎭 Schauspieler",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+        )
     }
 }
