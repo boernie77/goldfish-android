@@ -237,4 +237,22 @@ interface GoldfishApi {
 
     @PUT("api/playback/preferences")
     suspend fun setPlaybackPreferences(@Body request: PlaybackPreferences): Response<Unit>
+
+    // Gesehen-Sync zwischen zwei Konten (Server-Repo: api/watch_links.go).
+    // Die eigentliche Synchronisierung läuft komplett auf dem Server — die
+    // App verwaltet nur Anfragen/Bestätigungen. Normale Session, kein Admin.
+    @GET("api/users/names")
+    suspend fun getOtherUserNames(): Response<List<OtherUser>>
+
+    @GET("api/watch-links")
+    suspend fun getWatchLinks(): Response<List<WatchLink>>
+
+    @POST("api/watch-links")
+    suspend fun requestWatchLink(@Body request: WatchLinkRequest): Response<Unit>
+
+    @POST("api/watch-links/{partnerId}/confirm")
+    suspend fun confirmWatchLink(@Path("partnerId") partnerId: Int): Response<Unit>
+
+    @DELETE("api/watch-links/{partnerId}")
+    suspend fun deleteWatchLink(@Path("partnerId") partnerId: Int): Response<Unit>
 }

@@ -12,6 +12,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material3.*
@@ -30,9 +31,12 @@ import com.goldfish.android.ui.theme.GoldfishOrange
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit,
+    onOpenWatchLink: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    // Läuft bei jedem Betreten neu (auch nach Rückkehr von der Gesehen-Sync-Seite).
+    LaunchedEffect(Unit) { viewModel.refreshWatchLinkHint() }
     val context = LocalContext.current
     var serverUrlInput by remember(state.settings.serverUrl) {
         mutableStateOf(state.settings.serverUrl)
@@ -247,6 +251,44 @@ fun SettingsScreen(
             }
 
             Divider()
+
+            // Gesehen-Sync mit einem anderen Konto — eigene Seite wie in der
+            // Apple-App (WatchLinkSettingsView) und im Browser („Mein Konto").
+            // Nur mit Server-Session sinnvoll.
+            if (state.loggedIn) {
+                Text(
+                    text = "Konto",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = GoldfishOrange
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(onClick = onOpenWatchLink)
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Gesehen-Sync",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Text(
+                            text = state.watchLinkHint,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (state.watchLinkAttention) GoldfishOrange
+                                    else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Icon(
+                        Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                Divider()
+            }
 
             // Cache section
             Text(

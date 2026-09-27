@@ -14,6 +14,7 @@ import com.goldfish.android.data.repository.DownloadRepository
 import com.goldfish.android.data.repository.ItemRepository
 import com.goldfish.android.data.repository.LocalLibraryRepository
 import com.goldfish.android.data.repository.Result
+import com.goldfish.android.data.repository.WatchLinkRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -31,8 +32,15 @@ data class SettingsState(
     // (GET/PUT api/playback/preferences, Default AUS). Liegt serverseitig in
     // user_settings, damit die Einstellung auch auf dem nächsten Gerät gilt.
     val autoplayNext: Boolean = false,
-    val autoplayNextLoaded: Boolean = false
+    val autoplayNextLoaded: Boolean = false,
+    // Gesehen-Sync: Eintrag nur mit Server-Session sinnvoll; der Untertitel
+    // zeigt wie im Browser-Menü eine wartende Anfrage bzw. die Partner an.
+    val loggedIn: Boolean = false,
+    val watchLinkHint: String = WATCH_LINK_HINT_DEFAULT,
+    val watchLinkAttention: Boolean = false
 )
+
+const val WATCH_LINK_HINT_DEFAULT = "Gesehen-Status mit einem anderen Konto teilen"
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
@@ -42,7 +50,8 @@ class SettingsViewModel @Inject constructor(
     private val database: AppDatabase,
     private val itemRepository: ItemRepository,
     private val localLibraryRepository: LocalLibraryRepository,
-    private val authRepository: AuthRepository
+    private val authRepository: AuthRepository,
+    private val watchLinkRepository: WatchLinkRepository
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SettingsState())
@@ -76,6 +85,28 @@ class SettingsViewModel @Inject constructor(
             flow.collect { libs -> _state.update { it.copy(localLibraries = libs) } }
         }
         loadAutoplayNext()
+        _state.update { it.copy(loggedIn = authRepository.getCurrentStatus()?.isAuthenticated == true) }
+    }
+
+    /** Untertitel des Gesehen-Sync-Eintrags — Texte wie im Browser-Menü
+     *  (refreshWatchLinkHint in admin.js). Wird bei jedem Betreten der
+     *  Einstellungen neu geladen, damit er nach Aktionen auf der
+     *  Gesehen-Sync-Seite stimmt. Fehler → stiller Standardtext. */
+    fun refreshWatchLinkHint() {
+        if (!_state.value.loggedIn) return
+        viewModelScope.launch {
+            val links = (watchLinkRepository.getWatchLinks() as? Result.Success)?.data ?: return@launch
+            val incoming = links.filter { it.status == "pending_incoming" }
+            val active = links.filter { it.status == "accepted" }
+            val (hint, attention) = when {
+                incoming.isNotEmpty() ->
+                    "Anfrage von ${incoming.joinToString(", ") { it.partnerName }} wartet" to true
+                active.isNotEmpty() ->
+                    "Verknüpft mit ${active.joinToString(", ") { it.partnerName }}" to false
+                else -> WATCH_LINK_HINT_DEFAULT to false
+            }
+            _state.update { it.copy(watchLinkHint = hint, watchLinkAttention = attention) }
+        }
     }
 
     /** Pro-Konto-Schalter laden (Default AUS bei Fehler/altem Serverstand). */

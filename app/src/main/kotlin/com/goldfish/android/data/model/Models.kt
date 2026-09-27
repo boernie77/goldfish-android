@@ -374,6 +374,32 @@ data class PlaybackPreferences(
     val autoplayNext: Boolean = false
 )
 
+// --- Gesehen-Sync zwischen zwei Konten (Server-Repo: api/watch_links.go) ---
+
+/** Eintrag aus GET api/users/names — alle anderen Konten außer dem eigenen. */
+@JsonClass(generateAdapter = true)
+data class OtherUser(
+    val id: Int = 0,
+    val username: String = ""
+)
+
+/** Eintrag aus GET api/watch-links. `status` ist "accepted",
+ *  "pending_incoming" (Partner hat angefragt, wir müssen bestätigen) oder
+ *  "pending_outgoing" (wir haben angefragt, Partner muss bestätigen). */
+@JsonClass(generateAdapter = true)
+data class WatchLink(
+    val partnerId: Int = 0,
+    val partnerName: String = "",
+    val status: String = ""
+)
+
+/** Body für POST api/watch-links. Eine Gegenanfrage bestätigt der Server
+ *  automatisch. */
+@JsonClass(generateAdapter = true)
+data class WatchLinkRequest(
+    val username: String
+)
+
 // --- Cast / Schauspieler ---
 
 @JsonClass(generateAdapter = true)

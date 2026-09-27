@@ -23,6 +23,7 @@ import com.goldfish.android.ui.player.PlayerScreen
 import com.goldfish.android.ui.playlists.PlaylistsScreen
 import com.goldfish.android.ui.search.SearchScreen
 import com.goldfish.android.ui.settings.SettingsScreen
+import com.goldfish.android.ui.settings.WatchLinkScreen
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
@@ -81,6 +82,7 @@ sealed class Screen(val route: String) {
             "player-random-merged/${ids.joinToString(",")}/$itemId"
     }
     object Settings : Screen("settings")
+    object WatchLink : Screen("settings/watch-link")
     object Collections : Screen("collections")
     object Playlists : Screen("playlists")
     object Search : Screen("search")
@@ -424,8 +426,13 @@ fun GoldfishNavHost(
                             popUpTo(Screen.Settings.route) { inclusive = true }
                         }
                     }
-                }
+                },
+                onOpenWatchLink = { navController.navigate(Screen.WatchLink.route) }
             )
+        }
+
+        composable(Screen.WatchLink.route) {
+            WatchLinkScreen(onBack = { navController.popBackStack() })
         }
 
         composable(Screen.Collections.route) {
