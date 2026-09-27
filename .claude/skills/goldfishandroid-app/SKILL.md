@@ -125,3 +125,16 @@ Kachel bleibt grau").
   `LocalLibraryRepository.itemMutated` → `LocalLibraryViewModel.refreshCurrent()`.
 - **Beim Bauen neuer Listen darauf prüfen:** eine Kachel, die ihren `Item`-Schnappschuß vom
   Ladezeitpunkt festhält, ist nach jeder Mutation veraltet.
+
+## Stand 2026-09-27: Version 1.4.0 (110)
+- `feature/aufgegliederte-trefferanzeige` (Fuzzy-Suche `searchMode=fuzzy`, aufgegliederte
+  Treffer mit Schauspieler-Sektion, Person-Filter nach Serie gebündelt) lag seit 21.09.
+  **ungemergt** neben `main`. Play-Store-1.3.3 hatte diese Features deshalb nicht. Am 27.09.
+  zusammen mit `feature/gesehen-sync` in `main` gemergt (Konflikt nur in diesem Skill, der
+  Gesehen-Haken-Fix vom 23.09. in Library-/SearchViewModel ist erhalten).
+- **Vor jeder neuen Arbeit und vor jedem Release prüfen:** `git branch -a` und
+  `git log --oneline main..<branch>`. Offene Feature-Branches erst klären, dann bauen.
+- **Gesehen-Sync:** Einstellungen → Abschnitt „Konto“ → „Gesehen-Sync“
+  (`ui/settings/WatchLinkScreen.kt`, `WatchLinkViewModel.kt`, `data/repository/WatchLinkRepository.kt`).
+  Nur mit Server-Session sichtbar. Untertitel zeigt eine wartende Anfrage orange. Noch nicht auf
+  echtem Gerät getestet.
