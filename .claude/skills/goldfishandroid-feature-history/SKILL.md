@@ -28,6 +28,25 @@ Originaltext der früheren `CLAUDE.md` (Stand 2026-09-20), verbatim.
 
 ## Feature-/Bugfix-Chronik
 
+### Startseite: einheitliche Kacheln, Serienposter auch in „Fortsetzen", Sortierung wie Browser (2026-09-29, noch in keinem AAB)
+
+- **Serienposter jetzt in allen drei Streifen** (auch „▶ Fortsetzen", wie
+  Browser seit 1.4.49) — gleiche Regel `HomeViewModel.getShowPosterUrl()`.
+- **Einheitliche Kacheln:** jede Startseiten-Kachel 110 dp breit, 2:3. Echte
+  Poster (Film/Serie/Serienposter) füllen wie bisher (Crop). Andere Bilder
+  (16:9-`api/thumb/{id}` privater Libs, Musik) über `VideoCard(fitImage = true)`:
+  vollständig per `ContentScale.Fit` mittig, dahinter dasselbe Bild als Crop,
+  abgedunkelt (`0x99000000`), `Modifier.blur(16.dp)` nur ab API 31 (minSdk 26).
+- **Gleiche Höhe:** `VideoCard(reservedTextLines = n)` fixiert den Textblock auf
+  n × `labelSmall.lineHeight`; `HomeSectionRow` wählt 4 Zeilen, wenn der Streifen
+  eine private Lib mit Kanal oben enthält, sonst 2. Bibliotheks-Raster
+  unverändert (beide Parameter default aus).
+- **Sortierung** der globalen Streifen jetzt 1:1 wie `views.js`: „Fortsetzen"
+  nach `lastPlayedAt` (Server ≥ 1.4.52), „Als nächstes" nach
+  `showLastActivity` (≥ 1.4.49, neues nullable Feld in `Item`), neuestes zuerst,
+  Fallback `addedAt`, je max. 24. Vorher: `releasedAt` bzw. `addedAt` der
+  nächsten Folge — falsch. Fire-TV-`Models.kt` hat das Feld noch nicht.
+
 ### Startseite: Serienposter + „Aus Als nächstes entfernen" (2026-09-29, nach 1.4.0/110, noch in keinem AAB)
 
 - **Serienposter** in „📺 Als nächstes" und „🆕 Zuletzt hinzugefügt" (nicht

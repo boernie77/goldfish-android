@@ -18,15 +18,19 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import android.os.Build
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.isSpecified
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.goldfish.android.data.model.Item
@@ -85,7 +89,16 @@ fun VideoCard(
     onSelectionToggle: () -> Unit = onClick,
     // Allgemeiner Long-Press-Hook (z. B. Home „Als naechstes" → Entfernen-
     // Menue). Greift nur, wenn nicht schon der Download-Loeschen-Fall zieht.
-    onLongClick: (() -> Unit)? = null
+    onLongClick: (() -> Unit)? = null,
+    // Startseite: Bild ist KEIN 2:3-Poster (16:9-Vorschau, Musik-Cover) →
+    // nicht beschneiden, sondern vollstaendig (Fit) mittig zeigen; dahinter
+    // dasselbe Bild als abgedunkelte Fuellung (Crop, ab API 31 unscharf).
+    // Bibliotheks-Raster lassen das auf false.
+    fitImage: Boolean = false,
+    // Startseite: feste Hoehe des Textblocks unter dem Bild, in Zeilen der
+    // labelSmall-Zeilenhoehe — damit alle Kacheln eines Streifens gleich
+    // hoch sind. null = Textblock waechst mit dem Inhalt (Bibliotheks-Raster).
+    reservedTextLines: Int? = null
 ) {
     val cardHeight = if (isPoster) (cardWidth * 1.5f) else (cardWidth * 9f / 16f)
     val posterAlpha = if (item.watched) 0.65f else 1.0f
@@ -123,15 +136,46 @@ fun VideoCard(
                 )
         ) {
             // Image
-            AsyncImage(
-                model = imageUrl,
-                contentDescription = item.displayTitle,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .alpha(posterAlpha)
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
-            )
+            if (fitImage) {
+                // Fuellung: dasselbe Bild beschnitten, abgedunkelt; Unschaerfe
+                // nur ab Android 12 (Modifier.blur ist darunter wirkungslos).
+                AsyncImage(
+                    model = imageUrl,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .then(
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) Modifier.blur(16.dp)
+                            else Modifier
+                        )
+                        .alpha(posterAlpha)
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color(0x99000000))
+                )
+                AsyncImage(
+                    model = imageUrl,
+                    contentDescription = item.displayTitle,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .alpha(posterAlpha)
+                )
+            } else {
+                AsyncImage(
+                    model = imageUrl,
+                    contentDescription = item.displayTitle,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .alpha(posterAlpha)
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                )
+            }
 
             // Bottom gradient
             Box(
@@ -323,72 +367,79 @@ fun VideoCard(
         // --- Below poster: title + year/episode ---
         Spacer(modifier = Modifier.height(4.dp))
 
-        // Bei Private-Libs (YouTube etc.) UND wenn channelLabelOnTop=true:
-        // top = Kanal/Top-Folder aus relPath, Titel kommt darunter dicker.
-        // Sonst klassisches Layout (Titel oben).
-        val isPrivate = libraryKind == "private" && channelLabelOnTop
-        val channelName: String? = if (isPrivate) {
-            item.relPath?.split('/')?.firstOrNull { it.isNotBlank() }?.takeIf { it.isNotBlank() }
-        } else null
-        val topText = channelName ?: item.displayTitle
+        val textLineHeight = MaterialTheme.typography.labelSmall.lineHeight
+            .takeIf { it.isSpecified } ?: 16.sp
+        val textBlockModifier = if (reservedTextLines != null) {
+            Modifier.height(with(LocalDensity.current) { (textLineHeight * reservedTextLines).toDp() })
+        } else Modifier
+        Column(modifier = textBlockModifier.fillMaxWidth()) {
+            // Bei Private-Libs (YouTube etc.) UND wenn channelLabelOnTop=true:
+            // top = Kanal/Top-Folder aus relPath, Titel kommt darunter dicker.
+            // Sonst klassisches Layout (Titel oben).
+            val isPrivate = libraryKind == "private" && channelLabelOnTop
+            val channelName: String? = if (isPrivate) {
+                item.relPath?.split('/')?.firstOrNull { it.isNotBlank() }?.takeIf { it.isNotBlank() }
+            } else null
+            val topText = channelName ?: item.displayTitle
 
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text(
-                text = topText,
-                style = MaterialTheme.typography.labelSmall.copy(
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold
-                ),
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false)
-            )
-            // Confirmed tick
-            if (item.metadataConfirmed) {
-                Spacer(modifier = Modifier.width(2.dp))
-                Box(
-                    modifier = Modifier
-                        .size(8.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFF4CAF50))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = topText,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold
+                    ),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                // Confirmed tick
+                if (item.metadataConfirmed) {
+                    Spacer(modifier = Modifier.width(2.dp))
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF4CAF50))
+                    )
+                }
+            }
+
+            // Sub-Text-Logik: TV-Episode > Filme-Jahr > Veröffentlichungsdatum (YouTube etc.)
+            val meta = item.metadata
+            val subText = when {
+                meta?.season != null && meta.episode != null ->
+                    "S${meta.season.toString().padStart(2,'0')}E${meta.episode.toString().padStart(2,'0')}"
+                meta?.year != null && meta.year > 0 -> "${meta.year}"
+                !item.releasedAt.isNullOrBlank() -> formatReleasedAt(item.releasedAt)
+                else -> null
+            }
+            subText?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1
                 )
             }
-        }
 
-        // Sub-Text-Logik: TV-Episode > Filme-Jahr > Veröffentlichungsdatum (YouTube etc.)
-        val meta = item.metadata
-        val subText = when {
-            meta?.season != null && meta.episode != null ->
-                "S${meta.season.toString().padStart(2,'0')}E${meta.episode.toString().padStart(2,'0')}"
-            meta?.year != null && meta.year > 0 -> "${meta.year}"
-            !item.releasedAt.isNullOrBlank() -> formatReleasedAt(item.releasedAt)
-            else -> null
-        }
-        subText?.let {
-            Text(
-                text = it,
-                style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1
-            )
-        }
-
-        // Bei Private-Libs: Titel als dritte Zeile, etwas dicker als der subText.
-        if (isPrivate && channelName != null) {
-            Text(
-                text = item.displayTitle,
-                style = MaterialTheme.typography.labelSmall.copy(
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium
-                ),
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.92f),
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
+            // Bei Private-Libs: Titel als dritte Zeile, etwas dicker als der subText.
+            if (isPrivate && channelName != null) {
+                Text(
+                    text = item.displayTitle,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium
+                    ),
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.92f),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
     }
 }

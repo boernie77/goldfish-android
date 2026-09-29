@@ -286,11 +286,15 @@ fun HomeScreen(
                 // alle vom Server und sind nicht offline-tauglich.
                 val sections = if (state.offlineOnly) emptyList()
                     else state.homeData?.sections.orEmpty()
+                // Sortierung 1:1 wie Browser views.js: „Fortsetzen" nach
+                // lastPlayedAt (Server ab 1.4.52), „Als naechstes" nach
+                // showLastActivity (ab 1.4.49) — jeweils neuestes zuerst,
+                // Fallback addedAt fuer aeltere Server.
                 val allContinue = sections.flatMap { it.continueItems }
-                    .sortedByDescending { it.releasedAt ?: it.addedAt ?: "" }
+                    .sortedByDescending { it.lastPlayedAt?.takeIf { v -> v.isNotBlank() } ?: it.addedAt ?: "" }
                     .take(24)
                 val allNextUp = sections.flatMap { it.nextUp }
-                    .sortedByDescending { it.addedAt ?: "" }
+                    .sortedByDescending { it.showLastActivity?.takeIf { v -> v.isNotBlank() } ?: it.addedAt ?: "" }
                     .take(24)
                 // Lookup libraryId → kind, damit Items in cross-library
                 // Streifen ihren eigenen Lib-Kind kennen (Movies-Items
@@ -314,7 +318,8 @@ fun HomeScreen(
                             getImageUrl = viewModel::getImageUrl,
                             onItemClick = onNavigateToItem,
                             kindForItem = kindForItem,
-                            channelLabelOnTopForItem = channelLabelOnTopForItem
+                            channelLabelOnTopForItem = channelLabelOnTopForItem,
+                            showPosterUrl = viewModel::getShowPosterUrl
                         )
                     }
                 }
@@ -449,12 +454,18 @@ private fun HomeSectionRow(
     // Per-Item-Lookup fuer das channel_label_on_top-Flag aus der Library.
     // Default true (Server-Default), wirkt nur bei kind=private.
     channelLabelOnTopForItem: (Item) -> Boolean = { true },
-    // Serienposter statt Folgenbild (nur „Als naechstes" + „Zuletzt
-    // hinzugefuegt", wie im Browser). null-Rueckgabe = bisheriges Bild.
+    // Serienposter statt Folgenbild (alle drei Startseiten-Streifen, wie im
+    // Browser). null-Rueckgabe = bisheriges Bild.
     showPosterUrl: ((Item) -> String?)? = null,
     // Langdruck-Aktion pro Kachel (nur „Als naechstes": Entfernen-Menue)
     onItemLongClick: ((Item) -> Unit)? = null
 ) {
+    // Textblock-Hoehe je Streifen fest: Titel + Untertitel (je 1 Zeile),
+    // bei privaten Libs mit Kanal oben zusaetzlich 2 Titelzeilen — damit
+    // alle Kacheln eines Streifens gleich hoch sind.
+    val reservedTextLines = if (items.any {
+            kindForItem(it) == "private" && channelLabelOnTopForItem(it)
+        }) 4 else 2
     Column(modifier = Modifier.padding(vertical = 8.dp)) {
         Row(
             modifier = Modifier
@@ -482,18 +493,24 @@ private fun HomeSectionRow(
             items(items) { item ->
                 val itemKind = kindForItem(item)
                 val seriesPoster = showPosterUrl?.invoke(item)
-                // Serienposter ist immer Hochformat — Kachel entsprechend
-                val isPoster = seriesPoster != null || itemKind == "movies" || itemKind == "tv"
+                // Einheitliche Kacheln (wie Browser-Startseite): jede Kachel
+                // 110dp breit im 2:3-Format. Echte Poster (Film/Serie,
+                // Serienposter) fuellen die Kachel; alles andere (16:9-
+                // Vorschau privater Libs, Musik-Cover) wird vollstaendig
+                // eingepasst, mit abgedunkelter Fuellung dahinter.
+                val isRealPoster = seriesPoster != null || itemKind == "movies" || itemKind == "tv"
                 val imageUrl = seriesPoster ?: getImageUrl(item.id, item.metadataId, itemKind)
                 VideoCard(
                     item = item,
                     imageUrl = imageUrl,
-                    isPoster = isPoster,
-                    cardWidth = if (isPoster) 110.dp else 180.dp,
+                    isPoster = true,
+                    cardWidth = 110.dp,
                     libraryKind = itemKind,
                     channelLabelOnTop = channelLabelOnTopForItem(item),
                     onClick = { onItemClick(item.id) },
-                    onLongClick = onItemLongClick?.let { cb -> { cb(item) } }
+                    onLongClick = onItemLongClick?.let { cb -> { cb(item) } },
+                    fitImage = !isRealPoster,
+                    reservedTextLines = reservedTextLines
                 )
             }
         }

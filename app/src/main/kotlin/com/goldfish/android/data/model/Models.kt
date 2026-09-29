@@ -99,7 +99,11 @@ data class Item(
     val year: Int? = null,
     // user_item_state.last_played_at — fuer den "zuletzt abgespielt zuerst"-Filter
     // in der "Alle Titel"-Ansicht.
-    val lastPlayedAt: String? = null
+    val lastPlayedAt: String? = null,
+    // Nur in der Startseiten-Antwort („Als naechstes", Server ab 1.4.49):
+    // wann der User zuletzt in DIESER Serie geschaut hat — Sortierschluessel
+    // des globalen Streifens wie im Browser views.js.
+    val showLastActivity: String? = null
 ) {
     val displayTitle: String
         get() = metadata?.title?.takeIf { it.isNotBlank() } ?: title
