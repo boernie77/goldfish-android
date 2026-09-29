@@ -19,6 +19,12 @@ interface GoldfishApi {
     @GET("api/home")
     suspend fun getHome(): Response<HomeResponse>
 
+    /** Serie der Folge {id} fuer das eigene Konto aus „Als naechstes"
+     *  ausblenden (nur Ansicht; kommt zurueck, sobald man darin weiterschaut).
+     *  204 = ok, 404 = keine Serienfolge. Server ab 1.4.50. */
+    @POST("api/home/nextup/{id}/hide")
+    suspend fun hideNextUp(@Path("id") itemId: Int): Response<Unit>
+
     @GET("api/libraries")
     suspend fun getLibraries(): Response<List<Library>>
 

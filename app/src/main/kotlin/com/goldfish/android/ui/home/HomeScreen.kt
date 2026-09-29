@@ -45,6 +45,38 @@ fun HomeScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var showLogoutDialog by remember { mutableStateOf(false) }
+    // Langdruck auf eine „Als naechstes"-Kachel → Menue zum Ausblenden der Serie
+    var nextUpMenuItem by remember { mutableStateOf<Item?>(null) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(state.message) {
+        state.message?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.clearMessage()
+        }
+    }
+
+    nextUpMenuItem?.let { menuItem ->
+        AlertDialog(
+            onDismissRequest = { nextUpMenuItem = null },
+            title = { Text(menuItem.displayTitle) },
+            text = {
+                Text("Die Serie verschwindet nur für dieses Konto aus „Als nächstes“ und kommt zurück, sobald du darin weiterschaust.")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    nextUpMenuItem = null
+                    viewModel.hideNextUp(menuItem)
+                }) {
+                    Text("Aus „Als nächstes“ entfernen")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { nextUpMenuItem = null }) {
+                    Text("Abbrechen")
+                }
+            }
+        )
+    }
 
     if (showLogoutDialog) {
         AlertDialog(
@@ -69,6 +101,7 @@ fun HomeScreen(
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = {
@@ -296,7 +329,9 @@ fun HomeScreen(
                             getImageUrl = viewModel::getImageUrl,
                             onItemClick = onNavigateToItem,
                             kindForItem = kindForItem,
-                            channelLabelOnTopForItem = channelLabelOnTopForItem
+                            channelLabelOnTopForItem = channelLabelOnTopForItem,
+                            showPosterUrl = viewModel::getShowPosterUrl,
+                            onItemLongClick = { nextUpMenuItem = it }
                         )
                     }
                 }
@@ -312,7 +347,8 @@ fun HomeScreen(
                                 baseUrl = state.baseUrl,
                                 getImageUrl = viewModel::getImageUrl,
                                 onItemClick = onNavigateToItem,
-                                channelLabelOnTopForItem = { section.library.channelLabelOnTop }
+                                channelLabelOnTopForItem = { section.library.channelLabelOnTop },
+                                showPosterUrl = viewModel::getShowPosterUrl
                             )
                         }
                     }
@@ -412,7 +448,12 @@ private fun HomeSectionRow(
     kindForItem: (Item) -> String = { libraryKind },
     // Per-Item-Lookup fuer das channel_label_on_top-Flag aus der Library.
     // Default true (Server-Default), wirkt nur bei kind=private.
-    channelLabelOnTopForItem: (Item) -> Boolean = { true }
+    channelLabelOnTopForItem: (Item) -> Boolean = { true },
+    // Serienposter statt Folgenbild (nur „Als naechstes" + „Zuletzt
+    // hinzugefuegt", wie im Browser). null-Rueckgabe = bisheriges Bild.
+    showPosterUrl: ((Item) -> String?)? = null,
+    // Langdruck-Aktion pro Kachel (nur „Als naechstes": Entfernen-Menue)
+    onItemLongClick: ((Item) -> Unit)? = null
 ) {
     Column(modifier = Modifier.padding(vertical = 8.dp)) {
         Row(
@@ -440,8 +481,10 @@ private fun HomeSectionRow(
         ) {
             items(items) { item ->
                 val itemKind = kindForItem(item)
-                val isPoster = itemKind == "movies" || itemKind == "tv"
-                val imageUrl = getImageUrl(item.id, item.metadataId, itemKind)
+                val seriesPoster = showPosterUrl?.invoke(item)
+                // Serienposter ist immer Hochformat — Kachel entsprechend
+                val isPoster = seriesPoster != null || itemKind == "movies" || itemKind == "tv"
+                val imageUrl = seriesPoster ?: getImageUrl(item.id, item.metadataId, itemKind)
                 VideoCard(
                     item = item,
                     imageUrl = imageUrl,
@@ -449,7 +492,8 @@ private fun HomeSectionRow(
                     cardWidth = if (isPoster) 110.dp else 180.dp,
                     libraryKind = itemKind,
                     channelLabelOnTop = channelLabelOnTopForItem(item),
-                    onClick = { onItemClick(item.id) }
+                    onClick = { onItemClick(item.id) },
+                    onLongClick = onItemLongClick?.let { cb -> { cb(item) } }
                 )
             }
         }

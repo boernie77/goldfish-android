@@ -28,6 +28,25 @@ Originaltext der früheren `CLAUDE.md` (Stand 2026-09-20), verbatim.
 
 ## Feature-/Bugfix-Chronik
 
+### Startseite: Serienposter + „Aus Als nächstes entfernen" (2026-09-29, nach 1.4.0/110, noch in keinem AAB)
+
+- **Serienposter** in „📺 Als nächstes" und „🆕 Zuletzt hinzugefügt" (nicht
+  „Fortsetzen"), wie Browser `cards.js` (`opts.showPoster`): Folge
+  (`tmdbType == "episode"`) mit `metadata.parentId > 0` **und**
+  `metadata.showPosterPath` (Server ≥ 1.4.48, JSON `omitempty`, im Model
+  nullable) → `api/poster/metadata/{parentId}?v={showPosterPath URL-kodiert}`.
+  Fehlt ein Feld: altes Bild. `HomeViewModel.getShowPosterUrl()`; die Kachel
+  wird dabei immer Hochformat.
+- **Langdruck** auf eine „Als nächstes"-Kachel → Dialog „Aus „Als nächstes“
+  entfernen" → `POST api/home/nextup/{itemId}/hide` (Server ≥ 1.4.50, 204;
+  404 = keine Serienfolge). Pro Konto, nur Ansicht; Serie kommt zurück, wenn
+  man darin weiterschaut. Bei Erfolg lokal entfernt (alle Kacheln derselben
+  `parentId`), bei Fehler Snackbar. `VideoCard` hat dafür den allgemeinen
+  Parameter `onLongClick` (greift nur, wenn nicht der Download-Löschen-Fall zieht).
+- Die Verweildauer-Einstellung je Streifen gibt es bewusst nur im Browser —
+  der Server filtert bereits.
+- Fire TV: `hideNextUp(itemId)` gleich benannt in `GoldfishApi.kt` nachziehen.
+
 ### „Nächste Folge automatisch starten" (2026-09-18, vC 108 / 1.3.2)
 
 - Option in den Einstellungen (Abschnitt „Wiedergabe"), **Standard AUS**, pro

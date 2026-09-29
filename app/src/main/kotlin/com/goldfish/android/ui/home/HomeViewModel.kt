@@ -47,7 +47,10 @@ data class HomeState(
     val localLibraries: List<com.goldfish.android.data.local.LocalLibraryEntity> = emptyList(),
     // Zusammengelegte Server-Bibliotheken (aus DataStore)
     val mergedServerLibraryIds: Set<Int> = emptySet(),
-    val mergedLocalLibraryIds: Set<Int> = emptySet()
+    val mergedLocalLibraryIds: Set<Int> = emptySet(),
+    // Einmal-Meldung fuer die Snackbar (z. B. Fehler beim Ausblenden aus
+    // „Als naechstes"); HomeScreen zeigt sie und ruft clearMessage().
+    val message: String? = null
 )
 
 @HiltViewModel
@@ -199,6 +202,51 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             authRepository.logout()
         }
+    }
+
+    /** Serienposter fuer eine Folge (Startseite „Als naechstes" und „Zuletzt
+     *  hinzugefuegt", wie im Browser cards.js showPoster). Nur wenn der Server
+     *  parentId UND showPosterPath liefert (ab 1.4.48) — sonst null, dann
+     *  bleibt es beim bisherigen Bild. ?v= dient wie im Browser als
+     *  Cache-Busting nach einer Neuzuordnung. */
+    fun getShowPosterUrl(item: com.goldfish.android.data.model.Item): String? {
+        val meta = item.metadata ?: return null
+        if (meta.tmdbType != "episode") return null
+        val parentId = meta.parentId?.takeIf { it > 0 } ?: return null
+        val showPoster = meta.showPosterPath?.takeIf { it.isNotEmpty() } ?: return null
+        val base = _state.value.baseUrl.trimEnd('/')
+        val v = java.net.URLEncoder.encode(showPoster, "UTF-8").replace("+", "%20")
+        return imageCache.preferLocal("$base/api/poster/metadata/$parentId?v=$v")
+    }
+
+    /** Serie der Folge aus „Als naechstes" ausblenden (Server ab 1.4.50, pro
+     *  Konto, nur Ansicht). Bei Erfolg die Kachel(n) lokal entfernen — alle
+     *  Folgen derselben Serie, falls der Streifen mehrere zeigt — statt den
+     *  kompletten Home-Reload abzuwarten. */
+    fun hideNextUp(item: com.goldfish.android.data.model.Item) {
+        viewModelScope.launch {
+            when (val result = itemRepository.hideNextUp(item.id)) {
+                is Result.Success -> {
+                    val showId = item.metadata?.parentId?.takeIf { it > 0 }
+                    _state.update { st ->
+                        val home = st.homeData ?: return@update st
+                        st.copy(homeData = home.copy(sections = home.sections.map { sec ->
+                            sec.copy(nextUp = sec.nextUp.filterNot {
+                                it.id == item.id ||
+                                    (showId != null && it.metadata?.parentId == showId)
+                            })
+                        }))
+                    }
+                }
+                is Result.Error -> {
+                    _state.update { it.copy(message = "Entfernen fehlgeschlagen: ${result.message}") }
+                }
+            }
+        }
+    }
+
+    fun clearMessage() {
+        _state.update { it.copy(message = null) }
     }
 
     fun getImageUrl(itemId: Int, metadataId: Int?, libraryKind: String): String {

@@ -208,6 +208,21 @@ class ItemRepository @Inject constructor(
         catch (_: Exception) { /* offline o.ä. — egal */ }
     }
 
+    /** Serie der Folge aus „Als naechstes" ausblenden (pro Konto, nur Ansicht).
+     *  404 heisst: keine Serienfolge. Home-Cache invalidieren, damit der
+     *  naechste Reload den Serverstand holt. */
+    suspend fun hideNextUp(itemId: Int): Result<Unit> {
+        return try {
+            val response = apiClientProvider.api.hideNextUp(itemId)
+            if (response.isSuccessful) {
+                cache.invalidate("home")
+                Result.Success(Unit)
+            } else if (response.code() == 404) Result.Error("Keine Serienfolge")
+            else Result.Error("HTTP ${response.code()}")
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+        catch (e: Exception) { Result.Error(e.message ?: "Unbekannter Fehler") }
+    }
+
     /** Item (inkl. Datei) auf dem Server löschen. Admin-only serverseitig. */
     suspend fun deleteItem(id: Int, deleteFile: Boolean = true): Result<Unit> {
         return try {

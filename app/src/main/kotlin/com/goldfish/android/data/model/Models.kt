@@ -51,7 +51,12 @@ data class Metadata(
     // Serien-Sammelkachel im Person-Filter (User-Wunsch 2026-09-20: Episoden-
     // Treffer nach Serie buendeln statt einzeln zu zeigen) und fuer den
     // klickbaren Serienlink in der Episoden-Detailansicht.
-    val parentId: Int? = null
+    val parentId: Int? = null,
+    // Bei Episoden der posterPath der Serie (Server ab 1.4.48, im JSON
+    // omitempty — aeltere Server liefern ihn nie, daher nullable). Die
+    // Startseiten-Streifen „Als naechstes" und „Zuletzt hinzugefuegt" zeigen
+    // damit wie der Browser das Serienposter statt des Folgenbilds.
+    val showPosterPath: String? = null
 )
 
 @JsonClass(generateAdapter = true)

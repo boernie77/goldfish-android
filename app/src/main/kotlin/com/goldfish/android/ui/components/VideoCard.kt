@@ -82,7 +82,10 @@ fun VideoCard(
     // Wird im selectionMode=true aufgerufen statt onClick. Lass leer, wenn die
     // Karte nicht selektierbar sein soll (Detail, Home-Strip, etc.) — dann
     // bleibt onClick auch im Selection-Modus aktiv.
-    onSelectionToggle: () -> Unit = onClick
+    onSelectionToggle: () -> Unit = onClick,
+    // Allgemeiner Long-Press-Hook (z. B. Home „Als naechstes" → Entfernen-
+    // Menue). Greift nur, wenn nicht schon der Download-Loeschen-Fall zieht.
+    onLongClick: (() -> Unit)? = null
 ) {
     val cardHeight = if (isPoster) (cardWidth * 1.5f) else (cardWidth * 9f / 16f)
     val posterAlpha = if (item.watched) 0.65f else 1.0f
@@ -104,6 +107,7 @@ fun VideoCard(
                 onClick = { if (selectionMode) onSelectionToggle() else onClick() },
                 onLongClick = {
                     if (isDownloaded && onDeleteDownload != null) onDeleteDownload(item)
+                    else onLongClick?.invoke()
                 }
             )
     ) {
