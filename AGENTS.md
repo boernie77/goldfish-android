@@ -54,7 +54,7 @@ Play Store). Zielgeräte: ein Samsung-Tablet des Users und der Pixel-Tablet-Emul
 - **Keine eigene Interpretation des Browser-Verhaltens.** Der Browser ist authoritativ (eigene
   Regel unten) — vor dem Bauen/Fixen eines Features erst das Browser-Verhalten prüfen.
 - **Die drei Server-API-Quirks nicht „bereinigen"** — die App ist auf sie fest verdrahtet.
-- **Kein `git push`, kein Play-Store-Upload, kein Release ohne ausdrückliche Anweisung.**
+- **Fertige Änderungen selbstständig committen und auf `main` pushen** (User-Vorgabe 2026-09-29, gilt für alle Goldfish-Repos). **Kein Play-Store-Upload und kein Release (AAB) ohne ausdrückliche Anweisung.**
 
 ## Versionierung & Release (Pflicht)
 
