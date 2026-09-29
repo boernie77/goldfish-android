@@ -258,4 +258,15 @@ class HomeViewModel @Inject constructor(
         }
         return imageCache.preferLocal(url)
     }
+
+    /** Startseite: Hochformat-Bild (400×600, Mitte 2:3 aus dem Originalvideo)
+     *  fuer Items ohne Poster, Server ab 1.4.54 — fuellt die 2:3-Kachel statt
+     *  einer beschnittenen 16:9-Vorschau. Eigene URL = eigener Schluessel im
+     *  ImageCache (sha256 der vollen URL) und im Coil-Cache, kollidiert also
+     *  nicht mit dem normalen Vorschaubild. Aeltere Server ignorieren den
+     *  Parameter und liefern das normale Vorschaubild. */
+    fun getPortraitThumbUrl(itemId: Int): String {
+        val base = _state.value.baseUrl.trimEnd('/')
+        return imageCache.preferLocal("$base/api/thumb/$itemId?format=portrait")
+    }
 }

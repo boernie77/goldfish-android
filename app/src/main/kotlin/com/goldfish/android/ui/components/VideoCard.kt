@@ -18,9 +18,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import android.os.Build
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -90,11 +88,6 @@ fun VideoCard(
     // Allgemeiner Long-Press-Hook (z. B. Home „Als naechstes" → Entfernen-
     // Menue). Greift nur, wenn nicht schon der Download-Loeschen-Fall zieht.
     onLongClick: (() -> Unit)? = null,
-    // Startseite: Bild ist KEIN 2:3-Poster (16:9-Vorschau, Musik-Cover) →
-    // nicht beschneiden, sondern vollstaendig (Fit) mittig zeigen; dahinter
-    // dasselbe Bild als abgedunkelte Fuellung (Crop, ab API 31 unscharf).
-    // Bibliotheks-Raster lassen das auf false.
-    fitImage: Boolean = false,
     // Startseite: feste Hoehe des Textblocks unter dem Bild, in Zeilen der
     // labelSmall-Zeilenhoehe — damit alle Kacheln eines Streifens gleich
     // hoch sind. null = Textblock waechst mit dem Inhalt (Bibliotheks-Raster).
@@ -136,46 +129,15 @@ fun VideoCard(
                 )
         ) {
             // Image
-            if (fitImage) {
-                // Fuellung: dasselbe Bild beschnitten, abgedunkelt; Unschaerfe
-                // nur ab Android 12 (Modifier.blur ist darunter wirkungslos).
-                AsyncImage(
-                    model = imageUrl,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(MaterialTheme.colorScheme.surfaceVariant)
-                        .then(
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) Modifier.blur(16.dp)
-                            else Modifier
-                        )
-                        .alpha(posterAlpha)
-                )
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color(0x99000000))
-                )
-                AsyncImage(
-                    model = imageUrl,
-                    contentDescription = item.displayTitle,
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .alpha(posterAlpha)
-                )
-            } else {
-                AsyncImage(
-                    model = imageUrl,
-                    contentDescription = item.displayTitle,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .alpha(posterAlpha)
-                        .background(MaterialTheme.colorScheme.surfaceVariant)
-                )
-            }
+            AsyncImage(
+                model = imageUrl,
+                contentDescription = item.displayTitle,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .alpha(posterAlpha)
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+            )
 
             // Bottom gradient
             Box(

@@ -316,6 +316,7 @@ fun HomeScreen(
                             libraryKind = "mixed",
                             baseUrl = state.baseUrl,
                             getImageUrl = viewModel::getImageUrl,
+                            portraitThumbUrl = viewModel::getPortraitThumbUrl,
                             onItemClick = onNavigateToItem,
                             kindForItem = kindForItem,
                             channelLabelOnTopForItem = channelLabelOnTopForItem,
@@ -332,6 +333,7 @@ fun HomeScreen(
                             libraryKind = "mixed",
                             baseUrl = state.baseUrl,
                             getImageUrl = viewModel::getImageUrl,
+                            portraitThumbUrl = viewModel::getPortraitThumbUrl,
                             onItemClick = onNavigateToItem,
                             kindForItem = kindForItem,
                             channelLabelOnTopForItem = channelLabelOnTopForItem,
@@ -351,6 +353,7 @@ fun HomeScreen(
                                 libraryKind = section.library.kind,
                                 baseUrl = state.baseUrl,
                                 getImageUrl = viewModel::getImageUrl,
+                                portraitThumbUrl = viewModel::getPortraitThumbUrl,
                                 onItemClick = onNavigateToItem,
                                 channelLabelOnTopForItem = { section.library.channelLabelOnTop },
                                 showPosterUrl = viewModel::getShowPosterUrl
@@ -445,6 +448,9 @@ private fun HomeSectionRow(
     libraryKind: String,
     baseUrl: String,
     getImageUrl: (Int, Int?, String) -> String,
+    // Hochformat-Vorschau (/api/thumb/{id}?format=portrait) fuer Items ohne
+    // Poster (private Videos) — fuellt die 2:3-Kachel.
+    portraitThumbUrl: (Int) -> String,
     onItemClick: (Int) -> Unit,
     // Pro-Item-Kind-Lookup: noetig fuer cross-library Streifen (Continue/
     // NextUp), wo Items aus verschiedenen Libs gemischt sind. Default schaut
@@ -494,12 +500,16 @@ private fun HomeSectionRow(
                 val itemKind = kindForItem(item)
                 val seriesPoster = showPosterUrl?.invoke(item)
                 // Einheitliche Kacheln (wie Browser-Startseite): jede Kachel
-                // 110dp breit im 2:3-Format. Echte Poster (Film/Serie,
-                // Serienposter) fuellen die Kachel; alles andere (16:9-
-                // Vorschau privater Libs, Musik-Cover) wird vollstaendig
-                // eingepasst, mit abgedunkelter Fuellung dahinter.
-                val isRealPoster = seriesPoster != null || itemKind == "movies" || itemKind == "tv"
-                val imageUrl = seriesPoster ?: getImageUrl(item.id, item.metadataId, itemKind)
+                // 110dp breit im 2:3-Format, Bild immer kachelfuellend (Crop).
+                // Echte Poster (Film/Serie, Serienposter) wie bisher; Musik-
+                // Cover normal; alles andere (private Videos, Filme ohne
+                // Metadaten) bekommt das Hochformat-Bild vom Server. Die
+                // fruehere Variante (16:9 klein eingepasst vor unscharfer
+                // Kopie) hat der User abgelehnt.
+                val isRealPoster = item.metadataId != null && (itemKind == "movies" || itemKind == "tv")
+                val imageUrl = seriesPoster
+                    ?: if (isRealPoster || itemKind == "music") getImageUrl(item.id, item.metadataId, itemKind)
+                    else portraitThumbUrl(item.id)
                 VideoCard(
                     item = item,
                     imageUrl = imageUrl,
@@ -509,7 +519,6 @@ private fun HomeSectionRow(
                     channelLabelOnTop = channelLabelOnTopForItem(item),
                     onClick = { onItemClick(item.id) },
                     onLongClick = onItemLongClick?.let { cb -> { cb(item) } },
-                    fitImage = !isRealPoster,
                     reservedTextLines = reservedTextLines
                 )
             }

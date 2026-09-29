@@ -28,15 +28,30 @@ Originaltext der früheren `CLAUDE.md` (Stand 2026-09-20), verbatim.
 
 ## Feature-/Bugfix-Chronik
 
+### Startseite: große Hochformat-Bilder statt Einpassen vor Unschärfe (2026-09-29, noch in keinem AAB)
+
+- **User hat die Unschärfe-Variante abgelehnt** („furchtbar"): kleines,
+  vollständig eingepasstes 16:9-Bild vor abgedunkelter/unscharfer Kopie. **Nicht
+  wieder einführen** — auf der Startseite nur kachelfüllende Bilder
+  (`ContentScale.Crop`). `VideoCard(fitImage)` samt Blur ist komplett entfernt.
+- Items ohne echtes Poster (private Videos, Filme/Serien ohne `metadataId`)
+  laden `{base}/api/thumb/{id}?format=portrait` (Server ≥ 1.4.54: 400×600,
+  Mitte 2:3 aus dem Originalvideo, beim ersten Abruf erzeugt und gecacht; bei
+  Audio/Fehler das normale Vorschaubild) über
+  `HomeViewModel.getPortraitThumbUrl()`. Poster und Serienposter wie bisher,
+  Musik-Cover über das normale `api/thumb/{id}`, ebenfalls Crop.
+- Cache: `ImageCache` schlüsselt per sha256 der vollen URL, die Query macht
+  die Hochformat-URL also zu einem eigenen Eintrag (kein Konflikt mit dem
+  16:9-Thumb, den `DownloadRepository` offline vorhält); Coil ebenso.
+- Bibliotheks-Raster unverändert; Kachelgröße und `reservedTextLines` bleiben.
+
 ### Startseite: einheitliche Kacheln, Serienposter auch in „Fortsetzen", Sortierung wie Browser (2026-09-29, noch in keinem AAB)
 
 - **Serienposter jetzt in allen drei Streifen** (auch „▶ Fortsetzen", wie
   Browser seit 1.4.49) — gleiche Regel `HomeViewModel.getShowPosterUrl()`.
-- **Einheitliche Kacheln:** jede Startseiten-Kachel 110 dp breit, 2:3. Echte
-  Poster (Film/Serie/Serienposter) füllen wie bisher (Crop). Andere Bilder
-  (16:9-`api/thumb/{id}` privater Libs, Musik) über `VideoCard(fitImage = true)`:
-  vollständig per `ContentScale.Fit` mittig, dahinter dasselbe Bild als Crop,
-  abgedunkelt (`0x99000000`), `Modifier.blur(16.dp)` nur ab API 31 (minSdk 26).
+- **Einheitliche Kacheln:** jede Startseiten-Kachel 110 dp breit, 2:3. (Die
+  ursprüngliche Einpass-/Unschärfe-Variante `VideoCard(fitImage)` ist wieder
+  entfernt — siehe nächster Abschnitt.)
 - **Gleiche Höhe:** `VideoCard(reservedTextLines = n)` fixiert den Textblock auf
   n × `labelSmall.lineHeight`; `HomeSectionRow` wählt 4 Zeilen, wenn der Streifen
   eine private Lib mit Kanal oben enthält, sonst 2. Bibliotheks-Raster
