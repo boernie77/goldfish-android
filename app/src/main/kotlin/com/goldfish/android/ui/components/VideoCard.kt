@@ -56,6 +56,32 @@ private fun fmtDuration(seconds: Double): String {
     return if (hours > 0) "${hours}h ${mins}m" else "${mins}m"
 }
 
+private fun fmtFileSize(bytes: Long): String = when {
+    bytes <= 0L -> ""
+    bytes >= 1_073_741_824L -> "${"%.1f".format(bytes / 1_073_741_824.0)} GB"
+    bytes >= 1_048_576L -> "${"%.0f".format(bytes / 1_048_576.0)} MB"
+    else -> "${bytes / 1024} KB"
+}
+
+private val SEASON_FOLDER_RE =
+    Regex("^(staffel|season|serie|s)\\s*\\d+$|^specials?$|^extras?$", RegexOption.IGNORE_CASE)
+
+/**
+ * Zwischenordner einer Serienfolge (Tatort: Kommissar) — Pendant zu
+ * `episodeGroup` in cards.js (Server 1.4.60/1.4.63). Nur fuer Folgen
+ * (metadata.tmdbType == "episode") mit mindestens drei Pfadsegmenten, deren
+ * zweites Segment KEIN Staffel-/Specials-Ordner ist. Liefert
+ * (Anzeigename, Ordnerpfad "<seg1>/<seg2>") oder null.
+ */
+fun episodeGroupOf(item: Item): Pair<String, String>? {
+    if (item.metadata?.tmdbType != "episode") return null
+    val rel = item.relPath?.split('/') ?: return null
+    if (rel.size < 3) return null
+    val seg = rel[1]
+    if (seg.isBlank() || SEASON_FOLDER_RE.matches(seg.trim())) return null
+    return seg to "${rel[0]}/${rel[1]}"
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun VideoCard(
@@ -91,7 +117,13 @@ fun VideoCard(
     // Startseite: feste Hoehe des Textblocks unter dem Bild, in Zeilen der
     // labelSmall-Zeilenhoehe — damit alle Kacheln eines Streifens gleich
     // hoch sind. null = Textblock waechst mit dem Inhalt (Bibliotheks-Raster).
-    reservedTextLines: Int? = null
+    reservedTextLines: Int? = null,
+    // Dateigroesse in der Unterzeile (Einstellungen → Anzeige, je
+    // Bibliotheksart; der Aufrufer entscheidet anhand der Bibliothek).
+    showFileSize: Boolean = false,
+    // Antippen der Kommissar-Zeile (episodeGroupOf) → Ordnerpfad
+    // "<seg1>/<seg2>". null = Zeile wird nur angezeigt, nicht klickbar.
+    onGroupClick: ((String) -> Unit)? = null
 ) {
     val cardHeight = if (isPoster) (cardWidth * 1.5f) else (cardWidth * 9f / 16f)
     val posterAlpha = if (item.watched) 0.65f else 1.0f
@@ -380,13 +412,35 @@ fun VideoCard(
                 !item.releasedAt.isNullOrBlank() -> formatReleasedAt(item.releasedAt)
                 else -> null
             }
-            subText?.let {
+            val sizeText = if (showFileSize) fmtFileSize(item.sizeBytes) else ""
+            val subLine = listOfNotNull(subText, sizeText.takeIf { it.isNotEmpty() })
+                .joinToString(" · ").takeIf { it.isNotEmpty() }
+            subLine?.let {
                 Text(
                     text = it,
                     style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1
                 )
+            }
+
+            // Zwischenordner (Tatort: Kommissar) als eigene Zeile, antippbar
+            // → alle Folgen dieses Ordners. Nicht in Streifen mit fester
+            // Texthoehe (Startseite), dort fehlt der Platz.
+            if (reservedTextLines == null) {
+                episodeGroupOf(item)?.let { (groupName, groupFolder) ->
+                    Text(
+                        text = groupName,
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                        color = if (onGroupClick != null) Color(0xFF60A5FA)
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = if (onGroupClick != null)
+                            Modifier.clickable { onGroupClick(groupFolder) }
+                        else Modifier
+                    )
+                }
             }
 
             // Bei Private-Libs: Titel als dritte Zeile, etwas dicker als der subText.

@@ -163,6 +163,14 @@ interface GoldfishApi {
         @Query("refresh") refresh: Boolean? = null
     ): Response<SeasonResponse>
 
+    // Ermittler-Katalog (Tatort, Server ab 1.4.65) — siehe CatalogResponse.
+    @GET("api/libraries/{id}/catalog")
+    suspend fun getCatalog(
+        @Path("id") libraryId: Int,
+        @Query("folder") folder: String,
+        @Query("team") team: String? = null
+    ): Response<CatalogResponse>
+
     @GET("api/collections")
     suspend fun getCollections(): Response<List<MediaCollection>>
 

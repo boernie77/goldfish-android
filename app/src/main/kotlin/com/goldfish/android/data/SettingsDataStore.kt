@@ -41,8 +41,22 @@ data class AppSettings(
     // jeden späteren Film drosseln. Leer = keine Begrenzung ("orig"/auto).
     // Bewusst NICHT serverseitig: der Server hält nur den Pro-Konto-Schalter
     // (api/playback/preferences), die Qualität merkt sich der Client.
-    val lastPlaybackProfile: String = ""
-)
+    val lastPlaybackProfile: String = "",
+    // Dateigroesse auf den Kacheln je Bibliotheksart (Pendant zum Browser-
+    // Dialog "Anzeige", Server 1.4.62; dort pro Browser, hier pro Geraet).
+    // Default an.
+    val showSizeMovies: Boolean = true,
+    val showSizeTv: Boolean = true,
+    val showSizePrivate: Boolean = true
+) {
+    /** Dateigroesse fuer eine Kachel der Bibliotheksart [kind] anzeigen? */
+    fun showFileSizeFor(kind: String?): Boolean = when (kind) {
+        "movies" -> showSizeMovies
+        "tv" -> showSizeTv
+        "private" -> showSizePrivate
+        else -> true
+    }
+}
 
 enum class CacheSize(val bytes: Long, val label: String) {
     LOW(50L * 1024 * 1024, "Klein (50 MB)"),
@@ -65,6 +79,9 @@ class SettingsDataStore @Inject constructor(
     private val KEY_MERGED_SERVER_LIB_IDS = stringSetPreferencesKey("merged_server_lib_ids")
     private val KEY_MERGED_LOCAL_LIB_IDS  = stringSetPreferencesKey("merged_local_lib_ids")
     private val KEY_LAST_PLAYBACK_PROFILE = stringPreferencesKey("last_playback_profile")
+    private val KEY_SHOW_SIZE_MOVIES = booleanPreferencesKey("show_size_movies")
+    private val KEY_SHOW_SIZE_TV = booleanPreferencesKey("show_size_tv")
+    private val KEY_SHOW_SIZE_PRIVATE = booleanPreferencesKey("show_size_private")
 
     val settings: Flow<AppSettings> = context.dataStore.data.map { prefs ->
         AppSettings(
@@ -83,7 +100,10 @@ class SettingsDataStore @Inject constructor(
             mergedLocalLibraryIds = (prefs[KEY_MERGED_LOCAL_LIB_IDS] ?: emptySet())
                 .mapNotNull { it.toIntOrNull() }
                 .toSet(),
-            lastPlaybackProfile = prefs[KEY_LAST_PLAYBACK_PROFILE] ?: ""
+            lastPlaybackProfile = prefs[KEY_LAST_PLAYBACK_PROFILE] ?: "",
+            showSizeMovies = prefs[KEY_SHOW_SIZE_MOVIES] ?: true,
+            showSizeTv = prefs[KEY_SHOW_SIZE_TV] ?: true,
+            showSizePrivate = prefs[KEY_SHOW_SIZE_PRIVATE] ?: true
         )
     }
 
@@ -94,6 +114,17 @@ class SettingsDataStore @Inject constructor(
             if (profile.isNullOrBlank()) prefs.remove(KEY_LAST_PLAYBACK_PROFILE)
             else prefs[KEY_LAST_PLAYBACK_PROFILE] = profile
         }
+    }
+
+    /** Dateigroessen-Schalter fuer eine Bibliotheksart ("movies"/"tv"/"private"). */
+    suspend fun saveShowFileSize(kind: String, value: Boolean) {
+        val key = when (kind) {
+            "movies" -> KEY_SHOW_SIZE_MOVIES
+            "tv" -> KEY_SHOW_SIZE_TV
+            "private" -> KEY_SHOW_SIZE_PRIVATE
+            else -> return
+        }
+        context.dataStore.edit { prefs -> prefs[key] = value }
     }
 
     suspend fun saveCompareLocalLibraryIds(ids: Set<Int>) {

@@ -418,6 +418,17 @@ class ItemRepository @Inject constructor(
         } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { Result.Error(e.message ?: "Unbekannter Fehler") }
     }
 
+    /** Ermittler-Katalog (Tatort) zu einem Serien-Ordner. Fehler/alte Server
+     *  → Result.Error, der Aufrufer zeigt dann schlicht nichts an. */
+    suspend fun getCatalog(libraryId: Int, folder: String, team: String? = null): Result<CatalogResponse> =
+        cached("catalog:$libraryId:$folder:${team.orEmpty()}", ttlMs = 60_000L) {
+            try {
+                val response = apiClientProvider.api.getCatalog(libraryId, folder, team)
+                if (response.isSuccessful) Result.Success(response.body() ?: CatalogResponse())
+                else Result.Error("HTTP ${response.code()}")
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { Result.Error(e.message ?: "Unbekannter Fehler") }
+        }
+
     suspend fun getCollectionItems(collectionId: Int): Result<List<MediaCollectionPart>> =
         cached("collection:$collectionId", ttlMs = 60_000L) {
             try {

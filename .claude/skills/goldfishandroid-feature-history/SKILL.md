@@ -28,6 +28,38 @@ Originaltext der früheren `CLAUDE.md` (Stand 2026-09-20), verbatim.
 
 ## Feature-/Bugfix-Chronik
 
+### Ordner-Sammlungen, Kommissar-Zeile, Tatort-Katalog, Dateigröße-Schalter (2026-09-30, Server 1.4.57–1.4.68, noch in keinem AAB)
+
+- **Ordner-Sammlungen:** `GET /api/collections` liefert zusätzlich `kind:"folder"` mit negativer
+  `id`, `libraryId`, `folder`, `drilldown`, `movieCount` (= Dateien). `MediaCollection.isFolderCollection`;
+  `CollectionsScreen(onOpenFolder)` öffnet `LibraryFolder` mit **`forced=true`** und dem
+  `drilldown` der Sammlung, Zähler „N Dateien", Cover weiter über `/api/poster/collection/{id}`.
+- **Erzwungene Ordner-Ansicht** = Route-Parameter `forced` von `Screen.LibraryFolder`
+  (`?drilldown=…&forced=…`), vererbt sich auf Unterordner (Navigation reicht `forced` durch).
+  `LibraryViewModel.load(…, forced)`: nie Staffel-Ansicht (`folderSeasonView` aus, Staffel-Chip
+  ausgeblendet); in Unterordnern (Pfad mit `/`) Sortierung „Veröffentlicht" aufsteigend,
+  **nicht** persistiert (Browser `restoreSortForContext`, 1.4.64). Offline-Pfad unverändert.
+- **Kommissar-Zeile:** `episodeGroupOf(item)` in `VideoCard.kt` (Folge, `relPath` ≥ 3 Segmente,
+  2. Segment kein Staffel-Ordner per Regex wie `cards.js`). Zeile in `VideoCard` (nicht in
+  Streifen mit `reservedTextLines`) und `EpisodeCard`; **Antippen der Zeile** (blau) →
+  `onOpenGroupFolder` → `LibraryFolder(<seg1>/<seg2>, forced=true)`, flach, chronologisch.
+  Verdrahtet in den `LibraryScreen`-Routen (Bibliothek, Ordner, zusammengelegt) — nicht auf
+  Startseite/Playlists/Person-Filter.
+- **Tatort-Katalog:** `GoldfishApi.getCatalog` → `CatalogResponse` (`CatalogEntry`, `CatalogGroup`),
+  `ItemRepository.getCatalog` (60 s ApiCache). Nur bei `forced`: Unterordner → Zähler
+  „owned/total Folgen vorhanden" im Topbar-Untertitel + ausgegraute `CatalogMissingCard`
+  (Fehlt, Nr., Datum, Titel, Ermittler; Antippen → Info-Dialog), bei „Veröffentlicht"
+  aufsteigend per `metadata.releaseDate` (neues Feld in `Metadata`) eingereiht, sonst hinten.
+  Sammlungs-Wurzel → Abschnitt „🕵 Ermittler ohne eigenen Ordner" (`groups` ohne `folder`),
+  Antippen → `openCatalogTeam(team)` zeigt die fehlenden Folgen (`?folder=…&team=…`); Zurück
+  schließt die Team-Ansicht. Bei aktivem Filter/Buchstaben keine Katalog-Kacheln.
+- **Dateigröße ein/aus:** Einstellungen → „Anzeige", drei lokale Schalter (DataStore
+  `show_size_movies|tv|private`, Default an), `AppSettings.showFileSizeFor(kind)`.
+  `VideoCard(showFileSize)` hängt die Größe an die Unterzeile, `EpisodeCard` als eigene Zeile;
+  nur im Bibliotheks-Raster (`LibraryScreen`). Settings-Collector in `LibraryViewModel` lädt
+  bei diesen Schaltern **nicht** neu (nur bei `offlineOnly`/`serverUrl`).
+- Fire TV zieht das parallel im eigenen Repo nach (`Models.kt`/`GoldfishApi.kt` abgleichen).
+
 ### Startseite: große Hochformat-Bilder statt Einpassen vor Unschärfe (2026-09-29, noch in keinem AAB)
 
 - **User hat die Unschärfe-Variante abgelehnt** („furchtbar"): kleines,

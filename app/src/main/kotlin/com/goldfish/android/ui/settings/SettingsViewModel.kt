@@ -128,6 +128,10 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun setShowFileSize(kind: String, enabled: Boolean) {
+        viewModelScope.launch { settingsDataStore.saveShowFileSize(kind, enabled) }
+    }
+
     fun saveMergedServerLibraryIds(ids: Set<Int>) {
         viewModelScope.launch { settingsDataStore.saveMergedServerLibraryIds(ids) }
     }

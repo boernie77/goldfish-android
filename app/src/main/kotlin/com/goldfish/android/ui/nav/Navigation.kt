@@ -54,10 +54,12 @@ sealed class Screen(val route: String) {
     object Library : Screen("library/{libraryId}") {
         fun createRoute(libraryId: Int) = "library/$libraryId"
     }
-    object LibraryFolder : Screen("library/{libraryId}/folder/{folder}?drilldown={drilldown}") {
-        fun createRoute(libraryId: Int, folder: String, drilldown: Boolean = false): String {
+    // forced=true: erzwungene Ordner-Ansicht (Ordner-Sammlung / Kommissar-
+    // Zeile) — nie Staffel-Ansicht, gilt fuer alle Unterordner darunter.
+    object LibraryFolder : Screen("library/{libraryId}/folder/{folder}?drilldown={drilldown}&forced={forced}") {
+        fun createRoute(libraryId: Int, folder: String, drilldown: Boolean = false, forced: Boolean = false): String {
             val base = "library/$libraryId/folder/${java.net.URLEncoder.encode(folder, "UTF-8")}"
-            return if (drilldown) "$base?drilldown=true" else base
+            return "$base?drilldown=$drilldown&forced=$forced"
         }
     }
     object Detail : Screen("detail/{itemId}") {
@@ -212,6 +214,9 @@ fun GoldfishNavHost(
                 onBack = { navController.popBackStack() },
                 onOpenPerson = { tmdbId, name ->
                     navController.navigate(Screen.PersonFilter.createRoute(tmdbId, name))
+                },
+                onOpenGroupFolder = { libId, groupFolder ->
+                    navController.navigate(Screen.LibraryFolder.createRoute(libId, groupFolder, forced = true))
                 }
             )
         }
@@ -221,7 +226,8 @@ fun GoldfishNavHost(
             arguments = listOf(
                 navArgument("libraryId") { type = NavType.IntType },
                 navArgument("folder") { type = NavType.StringType },
-                navArgument("drilldown") { type = NavType.StringType; defaultValue = "false"; nullable = true }
+                navArgument("drilldown") { type = NavType.StringType; defaultValue = "false"; nullable = true },
+                navArgument("forced") { type = NavType.StringType; defaultValue = "false"; nullable = true }
             )
         ) { backStackEntry ->
             val libraryId = backStackEntry.arguments?.getInt("libraryId") ?: return@composable
@@ -229,10 +235,12 @@ fun GoldfishNavHost(
                 java.net.URLDecoder.decode(it, "UTF-8")
             } ?: return@composable
             val drilldown = backStackEntry.arguments?.getString("drilldown") == "true"
+            val forced = backStackEntry.arguments?.getString("forced") == "true"
             LibraryScreen(
                 libraryId = libraryId,
                 folder = folder,
                 drilldownActive = drilldown,
+                forcedFolderView = forced,
                 onNavigateToItem = { itemId ->
                     navController.navigate(Screen.Detail.createRoute(itemId))
                 },
@@ -240,7 +248,8 @@ fun GoldfishNavHost(
                     navController.navigate(Screen.PlayerRandom.createRoute(libraryId, itemId))
                 },
                 onNavigateToFolder = { libId, subFolder, sub_drilldown ->
-                    navController.navigate(Screen.LibraryFolder.createRoute(libId, subFolder, sub_drilldown))
+                    // Erzwungene Ordner-Ansicht vererbt sich auf Unterordner.
+                    navController.navigate(Screen.LibraryFolder.createRoute(libId, subFolder, sub_drilldown, forced))
                 },
                 onNavigateHome = {
                     navController.navigate(Screen.Home.route) {
@@ -250,6 +259,9 @@ fun GoldfishNavHost(
                 onBack = { navController.popBackStack() },
                 onOpenPerson = { tmdbId, name ->
                     navController.navigate(Screen.PersonFilter.createRoute(tmdbId, name))
+                },
+                onOpenGroupFolder = { libId, groupFolder ->
+                    navController.navigate(Screen.LibraryFolder.createRoute(libId, groupFolder, forced = true))
                 }
             )
         }
@@ -349,6 +361,9 @@ fun GoldfishNavHost(
                 onBack = { navController.popBackStack() },
                 onPlayRandom = { _, itemId ->
                     navController.navigate(Screen.PlayerRandomMerged.createRoute(ids, itemId))
+                },
+                onOpenGroupFolder = { libId, groupFolder ->
+                    navController.navigate(Screen.LibraryFolder.createRoute(libId, groupFolder, forced = true))
                 }
             )
         }
@@ -439,6 +454,10 @@ fun GoldfishNavHost(
             CollectionsScreen(
                 onNavigateToItem = { itemId ->
                     navController.navigate(Screen.Detail.createRoute(itemId))
+                },
+                // Ordner-Sammlung → Ordner in erzwungener Ordner-Ansicht.
+                onOpenFolder = { libId, folder, drilldown ->
+                    navController.navigate(Screen.LibraryFolder.createRoute(libId, folder, drilldown, forced = true))
                 },
                 onBack = { navController.popBackStack() }
             )

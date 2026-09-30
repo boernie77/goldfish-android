@@ -31,6 +31,9 @@ import com.goldfish.android.ui.theme.GoldfishOrange
 @Composable
 fun CollectionsScreen(
     onNavigateToItem: (Int) -> Unit,
+    // Ordner-Sammlung (kind="folder", Server 1.4.57): Ordner in der
+    // Ordner-Ansicht oeffnen statt der Film-Liste (libraryId, folder, drilldown).
+    onOpenFolder: (Int, String, Boolean) -> Unit = { _, _, _ -> },
     onBack: () -> Unit,
     viewModel: CollectionsViewModel = hiltViewModel()
 ) {
@@ -136,7 +139,13 @@ fun CollectionsScreen(
                                 collection = collection,
                                 posterUrl = viewModel.getCollectionPosterUrl(collection),
                                 cardWidth = cardWidth.value.dp,
-                                onClick = { viewModel.openCollection(collection) }
+                                onClick = {
+                                    if (collection.isFolderCollection) {
+                                        onOpenFolder(collection.libraryId!!, collection.folder!!, collection.drilldown)
+                                    } else {
+                                        viewModel.openCollection(collection)
+                                    }
+                                }
                             )
                         }
                         if (state.collections.isEmpty()) {
@@ -192,7 +201,9 @@ private fun CollectionCard(
                     .background(Color(0xCC000000))
                     .padding(horizontal = 4.dp, vertical = 2.dp)
             ) {
-                val countText = if (collection.partCount > 0)
+                val countText = if (collection.isFolderCollection)
+                    "${collection.movieCount} Datei${if (collection.movieCount == 1) "" else "en"}"
+                else if (collection.partCount > 0)
                     "${collection.movieCount}/${collection.partCount} Filme"
                 else
                     "${collection.movieCount} Filme"

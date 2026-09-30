@@ -33,6 +33,8 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
+import com.goldfish.android.data.model.CatalogEntry
+import com.goldfish.android.data.model.CatalogGroup
 import com.goldfish.android.data.model.FolderItem
 import com.goldfish.android.data.model.Item
 import com.goldfish.android.data.model.Library
@@ -57,13 +59,19 @@ fun LibraryScreen(
     onBack: () -> Unit,
     onPlayRandom: ((Int, Int) -> Unit)? = null,
     onOpenPerson: (tmdbId: Long, name: String) -> Unit = { _, _ -> },
+    // Erzwungene Ordner-Ansicht (Ordner-Sammlung / Kommissar-Klick): nie
+    // Staffel-Ansicht, Ermittler-Katalog aktiv. Siehe LibraryState.
+    forcedFolderView: Boolean = false,
+    // Antippen der Kommissar-Zeile einer Folge → Ordner "<seg1>/<seg2>" der
+    // Bibliothek als flache Liste (erzwungene Ordner-Ansicht).
+    onOpenGroupFolder: (libraryId: Int, folder: String) -> Unit = { _, _ -> },
     viewModel: LibraryViewModel = hiltViewModel()
 ) {
-    LaunchedEffect(libraryId, folder, drilldownActive, mergedLibraryIds) {
+    LaunchedEffect(libraryId, folder, drilldownActive, mergedLibraryIds, forcedFolderView) {
         if (mergedLibraryIds.size > 1) {
             viewModel.loadMerged(mergedLibraryIds, folder, drilldownActive)
         } else {
-            viewModel.load(libraryId, folder, drilldownActive)
+            viewModel.load(libraryId, folder, drilldownActive, forcedFolderView)
         }
     }
 
@@ -89,7 +97,32 @@ fun LibraryScreen(
     // (Admin-only) gesetzt. Zeigt einen Bestaetigungsdialog zum An-/Aus-
     // schalten von "Unterordner als Ebene anzeigen".
     var drilldownDialogFor by remember { mutableStateOf<FolderItem?>(null) }
+    // Fehlt-Kachel (Tatort-Katalog) angetippt → Info-Dialog wie im Browser.
+    var missingInfo by remember { mutableStateOf<CatalogEntry?>(null) }
     val coroutineScope = rememberCoroutineScope()
+    val showFileSize = state.appSettings.showFileSizeFor(library?.kind)
+
+    missingInfo?.let { e ->
+        AlertDialog(
+            onDismissRequest = { missingInfo = null },
+            title = { Text("Nr. ${e.nr}: ${e.title}") },
+            text = {
+                val date = formatCatalogDate(e.date)
+                Text(
+                    listOfNotNull(
+                        listOfNotNull(e.sender?.takeIf { it.isNotBlank() },
+                            date.takeIf { it.isNotEmpty() }?.let { "Erstausstrahlung $it" })
+                            .joinToString(" · ").takeIf { it.isNotEmpty() },
+                        "Ermittler: ${e.ermittler.joinToString(" / ")}",
+                        "Fehlt in der Bibliothek."
+                    ).joinToString("\n")
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { missingInfo = null }) { Text("OK") }
+            }
+        )
+    }
 
     drilldownDialogFor?.let { f ->
         val turningOn = !f.drilldown
@@ -164,7 +197,8 @@ fun LibraryScreen(
                         } else {
                             Column {
                                 Text(
-                                    text = state.selectedSeason?.let {
+                                    text = state.catalogTeam
+                                        ?: state.selectedSeason?.let {
                                         it.name.ifBlank { "Staffel ${it.seasonNumber}" }
                                     } ?: folder ?: (library?.name ?: "Bibliothek"),
                                     style = MaterialTheme.typography.titleMedium.copy(
@@ -175,9 +209,14 @@ fun LibraryScreen(
                                 )
                                 // Subtitle: bei Folder-Ansicht den Library-Namen,
                                 // sonst die Counts (analog Browser-Breadcrumb).
+                                val cat = state.catalog
+                                val catCount = if (folder != null && folder.contains('/') &&
+                                    cat != null && cat.total > 0)
+                                    " · ${cat.owned}/${cat.total} Folgen vorhanden" else ""
                                 val subtitle = when {
                                     state.selectedSeason != null -> null
-                                    folder != null && library != null -> library.name
+                                    state.catalogTeam != null -> library?.name
+                                    folder != null && library != null -> library.name + catCount
                                     library != null -> formatLibraryStats(library, state.stats)
                                     else -> null
                                 }
@@ -193,7 +232,9 @@ fun LibraryScreen(
                     },
                     navigationIcon = {
                         IconButton(onClick = {
-                            if (state.selectedSeason != null) {
+                            if (state.catalogTeam != null) {
+                                viewModel.openCatalogTeam(null)
+                            } else if (state.selectedSeason != null) {
                                 viewModel.selectSeason(null)
                             } else {
                                 onBack()
@@ -222,7 +263,7 @@ fun LibraryScreen(
 
                 FilterToolbar(
                     state = state,
-                    isTvLib = isTvLib,
+                    isTvLib = isTvLib && !forcedFolderView,
                     onSortMenuClick = { showSortMenu = true },
                     onSortDirectionToggle = viewModel::toggleSortDirection,
                     onWatchedFilterChange = viewModel::onWatchedFilterChange,
@@ -295,6 +336,38 @@ fun LibraryScreen(
                     }
                 }
             }
+            state.catalogTeam != null -> {
+                // Team ohne eigenen Ordner — Pendant zu renderCatalogTeamView
+                // (views.js): Kopfzeile mit Bestand + nur die fehlenden Folgen.
+                val data = state.catalogTeamData
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(columns),
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(gap),
+                    horizontalArrangement = Arrangement.spacedBy(gap),
+                    verticalArrangement = Arrangement.spacedBy(gap)
+                ) {
+                    item(span = { GridItemSpan(columns) }) {
+                        Text(
+                            text = "🕵 ${state.catalogTeam} — ${data?.owned ?: 0}/${data?.total ?: 0} Folgen vorhanden",
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                            color = GoldfishOrange,
+                            modifier = Modifier.padding(vertical = 4.dp)
+                        )
+                    }
+                    if (data == null) {
+                        item(span = { GridItemSpan(columns) }) {
+                            Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator(color = GoldfishOrange)
+                            }
+                        }
+                    } else {
+                        items(data.missing) { e ->
+                            CatalogMissingCard(e, cardWidth, isPoster) { missingInfo = e }
+                        }
+                    }
+                }
+            }
             state.selectedSeason != null && folder != null -> {
                 val season = state.selectedSeason!!
                 val baseUrl = state.baseUrl.trimEnd('/')
@@ -325,6 +398,8 @@ fun LibraryScreen(
                             onSelectionToggle = {
                                 matchedItem?.id?.let { viewModel.toggleItemSelection(it) }
                             },
+                            showFileSize = showFileSize,
+                            onGroupClick = { gf -> onOpenGroupFolder(matchedItem?.libraryId ?: libraryId, gf) },
                             onClick = { if (ep.owned && ep.itemId != null) onNavigateToItem(ep.itemId) }
                         )
                     }
@@ -535,7 +610,25 @@ fun LibraryScreen(
                             }
                         }
 
-                        items(filteredItems) { item ->
+                        // Fehlende Folgen je Kommissar (Tatort-Katalog) — Pendant zu
+                        // applyCatalogGaps: bei "Veroeffentlicht" aufsteigend
+                        // chronologisch eingereiht (Vergleich mit
+                        // metadata.releaseDate), sonst hinten angehaengt.
+                        val catalogMissing = state.catalog?.missing.orEmpty()
+                            .takeIf { folder != null && folder.contains('/') && !anyFilterActive && state.alphaFilter == null }
+                            .orEmpty()
+                        val gridEntries: List<Any> = if (catalogMissing.isEmpty()) filteredItems
+                            else mergeCatalogGaps(
+                                filteredItems, catalogMissing,
+                                chrono = state.sortMode == SORT_RELEASED && state.sortAscending
+                            )
+
+                        items(gridEntries) { entry ->
+                            if (entry is CatalogEntry) {
+                                CatalogMissingCard(entry, cardWidth, isPoster) { missingInfo = entry }
+                                return@items
+                            }
+                            val item = entry as Item
                             val isDownloaded = item.id in state.downloadedItemIds
                             val isSelected = item.id in state.selectedItemIds
                             val downloadProgress = state.activeDownloads[item.id]
@@ -553,11 +646,31 @@ fun LibraryScreen(
                                 channelLabelOnTop = library?.channelLabelOnTop ?: true,
                                 onClick = { onNavigateToItem(item.id) },
                                 onSelectionToggle = { viewModel.toggleItemSelection(item.id) },
-                                onDeleteDownload = { dnldItem -> downloadToDelete = dnldItem }
+                                onDeleteDownload = { dnldItem -> downloadToDelete = dnldItem },
+                                showFileSize = showFileSize,
+                                onGroupClick = { gf -> onOpenGroupFolder(item.libraryId, gf) }
                             )
                         }
 
-                        if (filteredItems.isEmpty() && filteredFolders.isEmpty()) {
+                        // Ordner-Sammlungs-Wurzel: Teams ohne eigenen Ordner
+                        // (Browser: "🕵 Ermittler ohne eigenen Ordner").
+                        val looseGroups = state.catalog?.groups.orEmpty().filter { it.folder.isBlank() }
+                        if (folder != null && !folder.contains('/') && looseGroups.isNotEmpty() &&
+                            !anyFilterActive && state.alphaFilter == null) {
+                            item(span = { GridItemSpan(columns) }) {
+                                Text(
+                                    text = "🕵 Ermittler ohne eigenen Ordner (${looseGroups.size})",
+                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                                    color = GoldfishOrange,
+                                    modifier = Modifier.padding(top = 12.dp, bottom = 4.dp)
+                                )
+                            }
+                            items(looseGroups) { g ->
+                                CatalogTeamCard(g, cardWidth, isPoster) { viewModel.openCatalogTeam(g.team) }
+                            }
+                        }
+
+                        if (filteredItems.isEmpty() && filteredFolders.isEmpty() && gridEntries.isEmpty()) {
                             item(span = { GridItemSpan(columns) }) {
                                 Box(
                                     Modifier.fillMaxWidth().padding(32.dp),
@@ -1061,6 +1174,8 @@ private fun EpisodeCard(
     isSelected: Boolean = false,
     selectionMode: Boolean = false,
     onSelectionToggle: () -> Unit = {},
+    showFileSize: Boolean = false,
+    onGroupClick: ((String) -> Unit)? = null,
     onClick: () -> Unit
 ) {
     val cardHeight = cardWidth * 9f / 16f
@@ -1192,7 +1307,35 @@ private fun EpisodeCard(
                     else MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 2, overflow = TextOverflow.Ellipsis
         )
+        if (item != null && showFileSize && item.sizeBytes > 0) {
+            Text(
+                text = formatCardSize(item.sizeBytes),
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1
+            )
+        }
+        // Zwischenordner (Tatort: Kommissar) — wie auf der VideoCard.
+        item?.let { com.goldfish.android.ui.components.episodeGroupOf(it) }?.let { (groupName, groupFolder) ->
+            Text(
+                text = groupName,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                color = if (onGroupClick != null) Color(0xFF60A5FA)
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = if (onGroupClick != null)
+                    Modifier.clickable { onGroupClick(groupFolder) }
+                else Modifier
+            )
+        }
     }
+}
+
+private fun formatCardSize(bytes: Long): String = when {
+    bytes >= 1_073_741_824L -> "${"%.1f".format(bytes / 1_073_741_824.0)} GB"
+    bytes >= 1_048_576L -> "${"%.0f".format(bytes / 1_048_576.0)} MB"
+    else -> "${bytes / 1024} KB"
 }
 
 private fun resolutionLabel(width: Int, height: Int): String {
@@ -1401,6 +1544,129 @@ private fun PersonSearchCard(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center
+        )
+    }
+}
+
+
+/** "YYYY-MM-DD" → "DD.MM.YYYY" (leer bei unbrauchbarem Wert). */
+private fun formatCatalogDate(date: String): String {
+    val p = date.take(10).split("-")
+    return if (p.size == 3 && p[0].length == 4) "${p[2]}.${p[1]}.${p[0]}" else ""
+}
+
+/**
+ * Fehlt-Kacheln in die Item-Liste einreihen (Pendant zu applyCatalogGaps in
+ * views.js): chronologisch vor das erste Item mit spaeterer Erstausstrahlung;
+ * Items ohne Datum zaehlen nicht. Ohne [chrono] alle hinten anhaengen.
+ */
+private fun mergeCatalogGaps(items: List<Item>, missing: List<CatalogEntry>, chrono: Boolean): List<Any> {
+    if (!chrono) return items + missing
+    fun dateOf(it: Item): String =
+        it.metadata?.releaseDate?.take(10)?.takeIf { d -> d.isNotBlank() && !d.startsWith("0001") } ?: ""
+    val out = ArrayList<Any>(items.size + missing.size)
+    out.addAll(items)
+    for (e in missing) {
+        val idx = out.indexOfFirst { x -> x is Item && dateOf(x).let { d -> d.isNotEmpty() && d > e.date } }
+        if (idx >= 0) out.add(idx, e) else out.add(e)
+    }
+    return out
+}
+
+/** Ausgegraute Platzhalter-Kachel fuer eine fehlende Katalog-Folge. */
+@Composable
+private fun CatalogMissingCard(e: CatalogEntry, cardWidth: Dp, isPoster: Boolean, onClick: () -> Unit) {
+    val cardHeight = if (isPoster) cardWidth * 1.5f else cardWidth * 9f / 16f
+    Column(
+        modifier = Modifier
+            .width(cardWidth)
+            .alpha(0.55f)
+            .clickable(onClick = onClick)
+    ) {
+        Box(
+            modifier = Modifier
+                .width(cardWidth)
+                .height(cardHeight)
+                .clip(RoundedCornerShape(6.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+            contentAlignment = Alignment.Center
+        ) {
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(Color(0xCCCC0000))
+                    .padding(horizontal = 6.dp, vertical = 3.dp)
+            ) {
+                Text("Fehlt", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = e.title,
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 13.sp, fontWeight = FontWeight.SemiBold),
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            text = listOf("Nr. ${e.nr}", formatCatalogDate(e.date)).filter { it.isNotBlank() }.joinToString(" · "),
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1
+        )
+        if (e.ermittler.isNotEmpty()) {
+            Text(
+                text = e.ermittler.joinToString(" / "),
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+/** Kachel fuer ein Team ohne eigenen Ordner (Ordner-Sammlungs-Wurzel). */
+@Composable
+private fun CatalogTeamCard(g: CatalogGroup, cardWidth: Dp, isPoster: Boolean, onClick: () -> Unit) {
+    val cardHeight = if (isPoster) cardWidth * 1.5f else cardWidth * 9f / 16f
+    Column(modifier = Modifier.width(cardWidth).clickable(onClick = onClick)) {
+        Box(
+            modifier = Modifier
+                .width(cardWidth)
+                .height(cardHeight)
+                .clip(RoundedCornerShape(6.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .alpha(0.7f),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Filled.Folder, contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(32.dp))
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(4.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(Color(0xCC000000))
+                    .padding(horizontal = 4.dp, vertical = 2.dp)
+            ) {
+                Text("${g.owned}/${g.total} Folge${if (g.total == 1) "" else "n"}",
+                    color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = g.team,
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 13.sp, fontWeight = FontWeight.SemiBold),
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            text = "kein eigener Ordner",
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1
         )
     }
 }

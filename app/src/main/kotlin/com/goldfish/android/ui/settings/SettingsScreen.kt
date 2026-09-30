@@ -252,6 +252,42 @@ fun SettingsScreen(
 
             Divider()
 
+            // Anzeige — Dateigroesse auf den Kacheln je Bibliotheksart
+            // (Pendant zum Browser-Dialog "Anzeige", Server 1.4.62). Lokal
+            // auf diesem Geraet gespeichert, Default an.
+            Text(
+                text = "Anzeige",
+                style = MaterialTheme.typography.titleSmall,
+                color = GoldfishOrange
+            )
+            listOf(
+                Triple("movies", "Dateigröße auf Film-Kacheln", state.settings.showSizeMovies),
+                Triple("tv", "Dateigröße auf Serien-Kacheln", state.settings.showSizeTv),
+                Triple("private", "Dateigröße auf Privat-Kacheln", state.settings.showSizePrivate)
+            ).forEach { (kind, label, checked) ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = label,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Switch(
+                        checked = checked,
+                        onCheckedChange = { viewModel.setShowFileSize(kind, it) }
+                    )
+                }
+            }
+            Text(
+                text = "Gilt für dieses Gerät.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Divider()
+
             // Gesehen-Sync mit einem anderen Konto — eigene Seite wie in der
             // Apple-App (WatchLinkSettingsView) und im Browser („Mein Konto").
             // Nur mit Server-Session sinnvoll.

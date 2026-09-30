@@ -56,7 +56,11 @@ data class Metadata(
     // omitempty — aeltere Server liefern ihn nie, daher nullable). Die
     // Startseiten-Streifen „Als naechstes" und „Zuletzt hinzugefuegt" zeigen
     // damit wie der Browser das Serienposter statt des Folgenbilds.
-    val showPosterPath: String? = null
+    val showPosterPath: String? = null,
+    // Erstausstrahlung (TMDB, ISO-Zeitstempel "YYYY-MM-DDT00:00:00Z"; der
+    // Server liefert bei fehlendem Datum den Go-Nullwert "0001-…"). Grundlage
+    // fuer das chronologische Einreihen der Fehlt-Kacheln im Tatort-Katalog.
+    val releaseDate: String? = null
 )
 
 @JsonClass(generateAdapter = true)
@@ -264,7 +268,50 @@ data class MediaCollection(
     val movieCount: Int = 0,
     val posterPath: String? = null,
     val partCount: Int = 0,
-    val hiddenCount: Int = 0
+    val hiddenCount: Int = 0,
+    // Ordner-Sammlung (Server ab 1.4.57): kind="folder", negative id. Die
+    // Kachel oeffnet den Ordner `folder` der Bibliothek `libraryId` in der
+    // Ordner-Ansicht (nie Staffel-Ansicht); movieCount = Anzahl Dateien.
+    // drilldown = "Unterordner einzeln anzeigen" des Ordners (Tatort:
+    // Kommissar-Ordner als Kacheln statt aller Folgen flach).
+    val kind: String? = null,
+    val libraryId: Int? = null,
+    val folder: String? = null,
+    val drilldown: Boolean = false
+) {
+    val isFolderCollection: Boolean get() = kind == "folder" && libraryId != null && !folder.isNullOrBlank()
+}
+
+// --- Ermittler-Katalog (Tatort, Server ab 1.4.65) ---
+// GET /api/libraries/{id}/catalog?folder=…[&team=…]. Ohne Unterordner im
+// folder (Sammlungs-Wurzel) kommen `groups`, sonst teams/total/owned/missing.
+// available=false → Serie hat keinen Katalog, nichts anzeigen.
+
+@JsonClass(generateAdapter = true)
+data class CatalogEntry(
+    val nr: String = "",
+    val title: String = "",
+    val date: String = "",          // YYYY-MM-DD
+    val sender: String? = null,
+    val ermittler: List<String> = emptyList()
+)
+
+@JsonClass(generateAdapter = true)
+data class CatalogGroup(
+    val team: String = "",
+    val folder: String = "",        // leer = Team hat keinen eigenen Ordner
+    val total: Int = 0,
+    val owned: Int = 0
+)
+
+@JsonClass(generateAdapter = true)
+data class CatalogResponse(
+    val available: Boolean = false,
+    val teams: List<String> = emptyList(),
+    val total: Int = 0,
+    val owned: Int = 0,
+    val missing: List<CatalogEntry> = emptyList(),
+    val groups: List<CatalogGroup> = emptyList()
 )
 
 @JsonClass(generateAdapter = true)

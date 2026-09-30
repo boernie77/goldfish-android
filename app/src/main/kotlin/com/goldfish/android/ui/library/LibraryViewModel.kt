@@ -96,7 +96,20 @@ data class LibraryState(
     // Aufgegliederte Trefferanzeige (Server v1.4.22): Schauspieler-Treffer
     // fuer state.searchQuery, gescoped auf diese Library/diesen Folder.
     // Gleiches Pendant zu SearchScreen.personResults, hier library-scoped.
-    val personResults: List<com.goldfish.android.data.model.PersonSearchResult> = emptyList()
+    val personResults: List<com.goldfish.android.data.model.PersonSearchResult> = emptyList(),
+    // Erzwungene Ordner-Ansicht (Ordner-Sammlung bzw. Klick auf die
+    // Kommissar-Zeile, Server 1.4.57/1.4.63): nie Staffel-Ansicht, Kommissar-
+    // Unterordner nach Erstausstrahlung aufsteigend, Ermittler-Katalog aktiv.
+    val forcedFolderView: Boolean = false,
+    // Ermittler-Katalog (Tatort, Server 1.4.65) fuer den aktuellen Ordner:
+    // im Unterordner teams/total/owned/missing, in der Wurzel groups.
+    val catalog: com.goldfish.android.data.model.CatalogResponse? = null,
+    // Gewaehltes Team ohne eigenen Ordner ("Ermittler ohne eigenen Ordner")
+    // + dessen Katalog-Antwort (nur fehlende Folgen, wie im Browser).
+    val catalogTeam: String? = null,
+    val catalogTeamData: com.goldfish.android.data.model.CatalogResponse? = null,
+    // Anzeige-Einstellungen (Dateigroesse je Bibliotheksart).
+    val appSettings: com.goldfish.android.data.AppSettings = com.goldfish.android.data.AppSettings()
 )
 
 @HiltViewModel
@@ -161,13 +174,32 @@ class LibraryViewModel @Inject constructor(
     // server-side TMDB-Cache, plus folder-cache).
     private var pendingSeasonRefresh: Boolean = false
 
+    // Erzwungene Ordner-Ansicht fuer diesen Screen (Route-Parameter).
+    private var forcedFolderView: Boolean = false
+
+    // Letzter Stand der reload-relevanten Settings — die Anzeige-Schalter
+    // (Dateigroesse) aendern die Settings-Flow ebenfalls, sollen aber keinen
+    // Reload ausloesen.
+    private var lastOfflineOnly: Boolean? = null
+    private var lastServerUrl: String? = null
+
+    /** Kommissar-Ansicht: Unterordner innerhalb einer erzwungenen Ordner-
+     *  Ansicht. Browser (app.js restoreSortForContext, 1.4.64): immer nach
+     *  Erstausstrahlung, aelteste zuerst. */
+    private fun isForcedSubfolder(folder: String?): Boolean =
+        forcedFolderView && folder != null && folder.contains('/')
+
     init {
         viewModelScope.launch {
             settingsDataStore.settings.collect { settings ->
                 apiClientProvider.configure(settings.serverUrl, settings.cacheSizeBytes)
                 _state.update {
-                    it.copy(baseUrl = settings.serverUrl, offlineOnly = settings.offlineOnly)
+                    it.copy(baseUrl = settings.serverUrl, offlineOnly = settings.offlineOnly, appSettings = settings)
                 }
+                // Anzeige-Schalter (Dateigroesse) brauchen keinen Reload.
+                if (settings.offlineOnly == lastOfflineOnly && settings.serverUrl == lastServerUrl) return@collect
+                lastOfflineOnly = settings.offlineOnly
+                lastServerUrl = settings.serverUrl
                 // Bei Toggle-Aenderung Items neu laden, weil Folder-Listen
                 // im Offline-Mode anders gefiltert werden (rekursiv aus DB
                 // statt aus dem Server-Folder-Endpoint).
@@ -372,7 +404,8 @@ class LibraryViewModel @Inject constructor(
         load(ids.first(), folder, drilldownActive)
     }
 
-    fun load(libraryId: Int, folder: String?, drilldownActive: Boolean = false) {
+    fun load(libraryId: Int, folder: String?, drilldownActive: Boolean = false, forced: Boolean = false) {
+        forcedFolderView = forced
         if (libraryId != currentLibraryId) mergedLibraryIds = emptyList() // Reset wenn andere einzelne Lib
         val isNewLibrary = currentLibraryId != libraryId
         val isNewFolder = currentFolder != folder
@@ -421,7 +454,17 @@ class LibraryViewModel @Inject constructor(
                         selectedItemIds = emptySet()
                     )
                 }
-                s
+                // Kommissar-Ansicht: chronologisch aufsteigend (nicht persistiert).
+                if (isForcedSubfolder(folder)) {
+                    s = s.copy(sortMode = SORT_RELEASED, sortAscending = true)
+                }
+                s.copy(
+                    forcedFolderView = forced,
+                    seasonView = if (forced) false else s.seasonView,
+                    catalog = null,
+                    catalogTeam = null,
+                    catalogTeamData = null
+                )
             }
         }
         viewModelScope.launch {
@@ -449,7 +492,7 @@ class LibraryViewModel @Inject constructor(
             // Cache leer → kind="" → ggf. falscher Default (Titel statt
             // released, kein Season bei TV). Jetzt mit dem echten kind
             // nachkorrigieren, aber nur wo der User keinen eigenen Pref hat.
-            if (isNewLibrary && kind.isNotEmpty()) {
+            if (isNewLibrary && kind.isNotEmpty() && !isForcedSubfolder(folder)) {
                 _state.update { st ->
                     var s = st
                     if (prefs.getString(prefKey("sort"), null) == null) {
@@ -552,10 +595,21 @@ class LibraryViewModel @Inject constructor(
             }
         }
 
+        // Ermittler-Katalog (Tatort) nur in der erzwungenen Ordner-Ansicht —
+        // Pendant zu applyCatalogGaps/catalogContext in views.js.
+        val catFolder = currentFolder
+        if (forcedFolderView && catFolder != null) {
+            viewModelScope.launch {
+                val res = itemRepository.getCatalog(currentLibraryId, catFolder)
+                val data = (res as? Result.Success)?.data?.takeIf { it.available }
+                if (isStillCurrent(myGen)) _state.update { it.copy(catalog = data) }
+            }
+        }
+
         // Innerhalb eines TV Show-Ordners: Staffeln laden wenn seasonView aktiv ist.
         // seasonView für Folder wird separat von Root gespeichert ("folder_season_X").
         val folderSeasonKey = "folder_season_${currentLibraryId}"
-        val folderSeasonView = if (currentFolder != null) {
+        val folderSeasonView = if (currentFolder != null && !forcedFolderView) {
             prefs.getBoolean(folderSeasonKey, true)
         } else false
 
@@ -843,6 +897,19 @@ class LibraryViewModel @Inject constructor(
     fun toggleAlphaFilter(letter: String) {
         _state.update {
             it.copy(alphaFilter = if (it.alphaFilter == letter) null else letter)
+        }
+    }
+
+    /** "Ermittler ohne eigenen Ordner": Team oeffnen (null = zurueck). Zeigt
+     *  wie der Browser (renderCatalogTeamView) die fehlenden Folgen des Teams. */
+    fun openCatalogTeam(team: String?) {
+        _state.update { it.copy(catalogTeam = team, catalogTeamData = null) }
+        val folder = currentFolder ?: return
+        if (team == null) return
+        viewModelScope.launch {
+            val res = itemRepository.getCatalog(currentLibraryId, folder, team)
+            val data = (res as? Result.Success)?.data ?: com.goldfish.android.data.model.CatalogResponse()
+            if (_state.value.catalogTeam == team) _state.update { it.copy(catalogTeamData = data) }
         }
     }
 
