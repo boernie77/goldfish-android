@@ -138,3 +138,9 @@ Kachel bleibt grau").
   (`ui/settings/WatchLinkScreen.kt`, `WatchLinkViewModel.kt`, `data/repository/WatchLinkRepository.kt`).
   Nur mit Server-Session sichtbar. Untertitel zeigt eine wartende Anfrage orange. Noch nicht auf
   echtem Gerät getestet.
+
+
+## Suche: Genre-Sektion (2026-10-16)
+Server ab 1.5.12: `/api/items?genreSearch=` (siehe Skill `goldfish-playback`), getrennt von `search=`.
+Android: `GoldfishApi.getItems(genreSearch)`, `ItemRepository.searchGenre`, `SearchViewModel`/`SearchScreen` und `LibraryViewModel`/`LibraryScreen` (Commit a68250b). Fire-TV-API-Code ist identisch, aber manuell nachgezogen.
+Platzhalter des Suchfelds: „Titel, Schauspieler oder Genre…“ (Musik unverändert).
