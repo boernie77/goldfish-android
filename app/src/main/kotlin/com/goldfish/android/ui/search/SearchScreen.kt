@@ -65,7 +65,7 @@ fun SearchScreen(
                     OutlinedTextField(
                         value = state.query,
                         onValueChange = { viewModel.setQuery(it) },
-                        placeholder = { Text("Titel oder Dateiname…") },
+                        placeholder = { Text("Titel, Schauspieler oder Genre…") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                         trailingIcon = {
@@ -96,7 +96,7 @@ fun SearchScreen(
                 )
             }
 
-            val total = state.serverResults.size + state.offlineResults.size + state.localResults.size
+            val total = state.serverResults.size + state.genreResults.size + state.offlineResults.size + state.localResults.size
 
             if (state.query.isBlank()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -162,6 +162,12 @@ fun SearchScreen(
                     }
                     if (state.fuzzyExtraCount > 0) {
                         item { FuzzyExtraButton(state.fuzzyExtraCount, state.isLoadingFuzzy) { viewModel.loadMoreFuzzyResults() } }
+                    }
+                }
+                if (state.genreResults.isNotEmpty()) {
+                    item { SectionHeader("🏷 Genre · ${state.genreResults.size}") }
+                    items(state.genreResults) { item ->
+                        ServerResultRow(item, state.baseUrl) { onOpenServerItem(item.id) }
                     }
                 }
                 if (state.offlineResults.isNotEmpty()) {

@@ -97,6 +97,9 @@ data class LibraryState(
     // fuer state.searchQuery, gescoped auf diese Library/diesen Folder.
     // Gleiches Pendant zu SearchScreen.personResults, hier library-scoped.
     val personResults: List<com.goldfish.android.data.model.PersonSearchResult> = emptyList(),
+    // Genre-Sektion (Server ab 1.5.12), library-scoped; Titeltreffer werden erst in der
+    // Anzeige herausgefiltert (race-frei gegenueber dem Laden von items).
+    val genreResults: List<Item> = emptyList(),
     // Erzwungene Ordner-Ansicht (Ordner-Sammlung bzw. Klick auf die
     // Kommissar-Zeile, Server 1.4.57/1.4.63): nie Staffel-Ansicht, Kommissar-
     // Unterordner nach Erstausstrahlung aufsteigend, Ermittler-Katalog aktiv.
@@ -774,10 +777,24 @@ class LibraryViewModel @Inject constructor(
         if (search != null) {
             viewModelScope.launch {
                 val people = itemRepository.searchPeople(search, currentLibraryId, folderParam)
-                if (isStillCurrent(myGen)) _state.update { it.copy(personResults = people) }
+                if (isStillCurrent(myGen) && _state.value.searchQuery.takeIf { it.isNotBlank() } == search) {
+                    _state.update { it.copy(personResults = people) }
+                }
             }
-        } else if (st.personResults.isNotEmpty()) {
-            _state.update { it.copy(personResults = emptyList()) }
+            // Genre-Sektion (Server ab 1.5.12): gleicher Scope, nicht bei Musik-Bibliotheken.
+            if (st.library?.kind != "music") {
+                viewModelScope.launch {
+                    val genre = itemRepository.searchGenre(
+                        search, currentLibraryId, folderParam,
+                        libraryIds = mergedLibraryIds.takeIf { it.size > 1 }
+                    )
+                    if (isStillCurrent(myGen) && _state.value.searchQuery.takeIf { it.isNotBlank() } == search) {
+                        _state.update { it.copy(genreResults = genre) }
+                    }
+                }
+            }
+        } else if (st.personResults.isNotEmpty() || st.genreResults.isNotEmpty()) {
+            _state.update { it.copy(personResults = emptyList(), genreResults = emptyList()) }
         }
 
         // dir explizit mitsenden — Server-Default für leeres dir ist je nach

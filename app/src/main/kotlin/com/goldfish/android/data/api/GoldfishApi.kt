@@ -47,7 +47,10 @@ interface GoldfishApi {
         // Standard (null) matcht nur ganze Woerter. Response setzt bei der
         // Standardsuche den Header X-Fuzzy-Extra-Count mit der Anzahl
         // zusaetzlicher Treffer, die der Fuzzy-Modus bringen wuerde.
-        @Query("searchMode") searchMode: String? = null
+        @Query("searchMode") searchMode: String? = null,
+        // Server ab 1.5.12: Genre-Sektion der Suche (Wortanfang eines TMDB-Genres),
+        // getrennt von der Titelsuche (search liefert keine Genre-Treffer mehr).
+        @Query("genreSearch") genreSearch: String? = null
     ): Response<List<Item>>
 
     // Aufgegliederte Trefferanzeige (Server v1.4.22): Schauspieler-Treffer

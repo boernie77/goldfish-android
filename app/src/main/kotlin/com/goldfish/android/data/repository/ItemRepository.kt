@@ -175,6 +175,26 @@ class ItemRepository @Inject constructor(
         } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { Result.Error(e.message ?: "Unbekannter Fehler") }
     }
 
+    /** GET /api/items?genreSearch= (Server ab 1.5.12): Filme/Serien, deren TMDB-Genre mit
+     *  dem Begriff beginnt, gleicher Library-/Folder-Scope wie die Titelsuche. Nur ab
+     *  3 Zeichen, ungecacht, leere Liste bei Fehler (Sektion verschwindet einfach). */
+    suspend fun searchGenre(query: String, libraryId: Int? = null, folder: String? = null, libraryIds: List<Int>? = null): List<Item> {
+        val q = query.trim()
+        if (q.length < 3) return emptyList()
+        val ids = when {
+            !libraryIds.isNullOrEmpty() -> libraryIds
+            libraryId != null -> listOf(libraryId)
+            else -> null
+        }
+        return try {
+            val response = apiClientProvider.api.getItems(
+                libraryIds = ids, folder = folder, sort = "title", dir = "asc", genreSearch = q
+            )
+            if (response.isSuccessful) response.body() ?: emptyList() else emptyList()
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+        catch (e: Exception) { emptyList() }
+    }
+
     /** GET /api/search/people (Server v1.4.22, aufgegliederte Trefferanzeige).
      *  Liefert Schauspieler-Treffer fuer denselben Suchbegriff wie [getItems],
      *  gescoped auf dieselbe Library/Folder — separat, weil /api/items seit

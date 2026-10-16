@@ -670,7 +670,44 @@ fun LibraryScreen(
                             }
                         }
 
-                        if (filteredItems.isEmpty() && filteredFolders.isEmpty() && gridEntries.isEmpty()) {
+                        // Genre-Sektion (Server ab 1.5.12) unter den Titeltreffern, ohne Doppelte.
+                        val genreItems = if (state.searchQuery.isBlank() || state.library?.kind == "music") emptyList()
+                            else {
+                                val titleIds = state.items.mapTo(HashSet()) { it.id }
+                                state.genreResults.filter { it.id !in titleIds }
+                            }
+                        if (genreItems.isNotEmpty()) {
+                            item(span = { GridItemSpan(columns) }) {
+                                Text(
+                                    text = "🏷 Genre · ${genreItems.size}",
+                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                                    color = GoldfishOrange,
+                                    modifier = Modifier.padding(top = 12.dp, bottom = 4.dp)
+                                )
+                            }
+                            items(genreItems) { item ->
+                                VideoCard(
+                                    item = item,
+                                    imageUrl = viewModel.getImageUrl(item),
+                                    isDownloaded = item.id in state.downloadedItemIds,
+                                    isDownloading = false,
+                                    downloadProgress = 0f,
+                                    isPoster = isPoster,
+                                    cardWidth = cardWidth,
+                                    isSelected = false,
+                                    selectionMode = false,
+                                    libraryKind = library?.kind,
+                                    channelLabelOnTop = library?.channelLabelOnTop ?: true,
+                                    onClick = { onNavigateToItem(item.id) },
+                                    onSelectionToggle = {},
+                                    onDeleteDownload = { dnldItem -> downloadToDelete = dnldItem },
+                                    showFileSize = showFileSize,
+                                    onGroupClick = { gf -> onOpenGroupFolder(item.libraryId, gf) }
+                                )
+                            }
+                        }
+
+                        if (filteredItems.isEmpty() && filteredFolders.isEmpty() && gridEntries.isEmpty() && genreItems.isEmpty()) {
                             item(span = { GridItemSpan(columns) }) {
                                 Box(
                                     Modifier.fillMaxWidth().padding(32.dp),

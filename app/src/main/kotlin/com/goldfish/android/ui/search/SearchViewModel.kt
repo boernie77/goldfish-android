@@ -38,6 +38,9 @@ data class SearchState(
     // GET /api/search/people) — ganz oben ueber der Ergebnisliste gerendert.
     // Nur ab 3 Zeichen Suchbegriff befuellt (Server liefert sonst leer).
     val personResults: List<PersonSearchResult> = emptyList(),
+    // Genre-Sektion (Server ab 1.5.12): Treffer ueber TMDB-Genre, ohne die
+    // Titeltreffer; unter den Server-Treffern angezeigt.
+    val genreResults: List<Item> = emptyList(),
     // Anzahl zusaetzlicher Treffer, die searchMode=fuzzy liefern wuerde
     // (X-Fuzzy-Extra-Count-Header) — Grundlage fuer den "N weitere
     // Treffer"-Button. 0/null nach dem Nachladen (Button verschwindet).
@@ -99,7 +102,7 @@ class SearchViewModel @Inject constructor(
     /** Ersetzt ein bekanntes Treffer-Item durch den frischen Server-Stand (nur Anzeige-Daten). */
     private suspend fun patchItem(itemId: Int) {
         val st = _state.value
-        val known = st.serverResults.any { it.id == itemId } || st.offlineResults.any { it.id == itemId }
+        val known = st.serverResults.any { it.id == itemId } || st.genreResults.any { it.id == itemId } || st.offlineResults.any { it.id == itemId }
         if (!known) return
         val fresh = when (val r = itemRepository.getItem(itemId)) {
             is Result.Success -> r.data
@@ -108,6 +111,7 @@ class SearchViewModel @Inject constructor(
         _state.update {
             it.copy(
                 serverResults = it.serverResults.map { old -> if (old.id == fresh.id) fresh else old },
+                genreResults = it.genreResults.map { old -> if (old.id == fresh.id) fresh else old },
                 offlineResults = it.offlineResults.map { old -> if (old.id == fresh.id) fresh else old }
             )
         }
@@ -132,6 +136,7 @@ class SearchViewModel @Inject constructor(
                     offlineResults = emptyList(),
                     localResults = emptyList(),
                     personResults = emptyList(),
+                    genreResults = emptyList(),
                     fuzzyExtraCount = 0
                 )
             }
@@ -148,6 +153,9 @@ class SearchViewModel @Inject constructor(
         // Offline-Modus: keine Personen-Suche (nur Server-Endpoint).
         val peopleDeferred = if (offlineOnly) null
             else viewModelScope.async { itemRepository.searchPeople(q) }
+
+        val genreDeferred = if (offlineOnly) null
+            else viewModelScope.async { itemRepository.searchGenre(q) }
 
         // Server-Suche nur wenn online-Modus
         var fuzzyExtraCount = 0
@@ -166,6 +174,9 @@ class SearchViewModel @Inject constructor(
             ?.takeIf { it.isNotBlank() && authRepository.authStatus.value?.isAuthenticated == true }
         val local = try { localLibraryRepository.searchAllItems(q, currentUser) } catch (_: Exception) { emptyList() }
         val people = peopleDeferred?.let { try { it.await() } catch (_: Exception) { emptyList() } } ?: emptyList()
+        val titleIds = server.map { it.id }.toSet()
+        val genre = genreDeferred?.let { try { it.await() } catch (_: Exception) { emptyList() } }
+            ?.filter { it.id !in titleIds } ?: emptyList()
 
         _state.update {
             it.copy(
@@ -174,6 +185,7 @@ class SearchViewModel @Inject constructor(
                 offlineResults = offline,
                 localResults = local,
                 personResults = people,
+                genreResults = genre,
                 fuzzyExtraCount = fuzzyExtraCount
             )
         }
