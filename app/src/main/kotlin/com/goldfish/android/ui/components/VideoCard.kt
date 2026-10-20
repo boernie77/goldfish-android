@@ -130,7 +130,9 @@ fun VideoCard(
 
     val resText = resLabel(item.width, item.height)
     val durText = fmtDuration(item.durationSec)
-    val variantCount = 0 // populated from outside if needed
+    // x N-Badge wie im Browser (cards.js): clientseitig gebuendelte Dateien
+    // oder serverseitiger variantCount (Geschwister auch in anderen Libraries).
+    val variantCount = maxOf(item.groupedCount, item.variantCount)
 
     Column(
         modifier = Modifier
@@ -259,6 +261,25 @@ fun VideoCard(
                     tint = if (item.favorite) Color(0xFFE91E63) else Color(0x88FFFFFF),
                     modifier = Modifier.size(13.dp)
                 )
+            }
+
+            // x N-Badge: mehrere Versionen (Dateien) hinter dieser Kachel
+            if (variantCount > 1) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(start = 5.dp, top = 30.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(Color(0xCC000000))
+                        .padding(horizontal = 5.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = "×$variantCount",
+                        color = GoldfishOrange,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
 
             // BOTTOM LEFT: Resolution badge

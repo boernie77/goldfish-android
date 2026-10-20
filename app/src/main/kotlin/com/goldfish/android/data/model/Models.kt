@@ -107,7 +107,14 @@ data class Item(
     // Nur in der Startseiten-Antwort („Als naechstes", Server ab 1.4.49):
     // wann der User zuletzt in DIESER Serie geschaut hat — Sortierschluessel
     // des globalen Streifens wie im Browser views.js.
-    val showLastActivity: String? = null
+    val showLastActivity: String? = null,
+    // Bewusst aus der Varianten-Gruppierung genommen (Server: "Als eigene
+    // Kacheln trennen") — dann nie mit gleicher metadataId zusammenfassen.
+    val variantSplit: Boolean = false,
+    // Nur clientseitig: Anzahl der Dateien, die groupVariants() in dieser
+    // Kachel gebuendelt hat (wie _variants.length im Browser). Nicht Teil der
+    // Server-JSON.
+    @Transient val groupedCount: Int = 0
 ) {
     val displayTitle: String
         get() = metadata?.title?.takeIf { it.isNotBlank() } ?: title

@@ -7,33 +7,31 @@ import com.goldfish.android.data.model.Item
 // Aufloesung, dann groesste Bitrate. Items ohne metadataId (z. B. unmatched
 // Files) bleiben einzeln.
 fun groupVariants(items: List<Item>): List<Item> {
-    val groups = LinkedHashMap<Int, Item>()
-    val singletons = mutableListOf<Item>()
+    // Repraesentant und Dateianzahl pro metadataId; variantSplit-Items und
+    // Items ohne metadataId bleiben immer einzeln (wie im Browser).
+    val reps = HashMap<Int, Item>()
+    val counts = HashMap<Int, Int>()
     for (it in items) {
         val key = it.metadataId
-        if (key == null || key == 0) {
-            singletons += it
-            continue
-        }
-        val existing = groups[key]
+        if (key == null || key == 0 || it.variantSplit) continue
+        counts[key] = (counts[key] ?: 0) + maxOf(1, it.groupedCount)
+        val existing = reps[key]
         if (existing == null) {
-            groups[key] = it
+            reps[key] = it
         } else {
             val better = it.height > existing.height ||
                 (it.height == existing.height && it.bitrateKbps > existing.bitrateKbps)
-            if (better) groups[key] = it
+            if (better) reps[key] = it
         }
     }
-    // Reihenfolge wie sie der Server geliefert hat (server-seitige Sortierung
-    // stabil halten) — `groups.values` liefert in Insertion-Order, plus die
-    // Singletons in ihrer Originalposition. Einfacher Mix: in einem Durchlauf
-    // bauen, statt zwei separate Listen am Ende zu verbinden.
+    // Reihenfolge wie vom Server geliefert: die Gruppe steht an der Position
+    // ihres ersten Mitglieds, Einzel-Items an der Originalposition.
     val seen = HashSet<Int>()
     val out = ArrayList<Item>(items.size)
     for (it in items) {
         val key = it.metadataId
-        if (key == null || key == 0) { out += it; continue }
-        if (seen.add(key)) out += groups.getValue(key)
+        if (key == null || key == 0 || it.variantSplit) { out += it; continue }
+        if (seen.add(key)) out += reps.getValue(key).copy(groupedCount = counts.getValue(key))
     }
     return out
 }

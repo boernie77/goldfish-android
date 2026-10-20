@@ -1,5 +1,6 @@
 package com.goldfish.android.ui.home
 
+import com.goldfish.android.util.groupVariants
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.goldfish.android.data.SettingsDataStore
@@ -182,7 +183,7 @@ class HomeViewModel @Inject constructor(
 
             when (val result = itemRepository.getHome()) {
                 is Result.Success -> {
-                    _state.update { it.copy(isLoading = false, homeData = result.data) }
+                    _state.update { it.copy(isLoading = false, homeData = groupHomeVariants(result.data)) }
                 }
                 is Result.Error -> {
                     _state.update { it.copy(isLoading = false, errorMessage = result.message) }
@@ -269,4 +270,15 @@ class HomeViewModel @Inject constructor(
         val base = _state.value.baseUrl.trimEnd('/')
         return imageCache.preferLocal("$base/api/thumb/$itemId?format=portrait")
     }
+
+    /** Mehrere Versionen desselben Films/derselben Folge (gleiche metadataId)
+     *  zu einer Kachel buendeln — Pendant zu renderGlobalStrip im Browser. */
+    private fun groupHomeVariants(data: com.goldfish.android.data.model.HomeResponse) =
+        data.copy(sections = data.sections.map {
+            it.copy(
+                continueItems = groupVariants(it.continueItems),
+                nextUp = groupVariants(it.nextUp),
+                recent = groupVariants(it.recent)
+            )
+        })
 }

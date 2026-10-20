@@ -1,5 +1,6 @@
 package com.goldfish.android.ui.search
 
+import com.goldfish.android.util.groupVariants
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.goldfish.android.data.SettingsDataStore
@@ -163,7 +164,7 @@ class SearchViewModel @Inject constructor(
             when (val r = itemRepository.searchAcrossLibraries(q)) {
                 is Result.Success -> {
                     fuzzyExtraCount = r.data.fuzzyExtraCount
-                    r.data.items
+                    groupVariants(r.data.items)
                 }
                 is Result.Error -> emptyList()
             }
@@ -176,7 +177,7 @@ class SearchViewModel @Inject constructor(
         val people = peopleDeferred?.let { try { it.await() } catch (_: Exception) { emptyList() } } ?: emptyList()
         val titleIds = server.map { it.id }.toSet()
         val genre = genreDeferred?.let { try { it.await() } catch (_: Exception) { emptyList() } }
-            ?.filter { it.id !in titleIds } ?: emptyList()
+            ?.filter { it.id !in titleIds }?.let { groupVariants(it) } ?: emptyList()
 
         _state.update {
             it.copy(
@@ -208,7 +209,7 @@ class SearchViewModel @Inject constructor(
                     _state.update {
                         it.copy(
                             isLoadingFuzzy = false,
-                            serverResults = it.serverResults + extra,
+                            serverResults = groupVariants(it.serverResults + extra),
                             fuzzyExtraCount = 0,
                             fuzzyError = null
                         )

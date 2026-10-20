@@ -268,6 +268,15 @@ class DetailViewModel @Inject constructor(
         downloadRepository.startInBackground(item, downloadDir, downloadTreeUri)
     }
 
+    /** Laufenden Download abbrechen (Teildatei raeumt das Repository auf). */
+    fun cancelDownload() {
+        val item = _state.value.item ?: return
+        downloadRepository.cancelDownload(item.id)
+        _state.update {
+            it.copy(isDownloading = false, downloadProgress = 0f, toastMessage = "Download abgebrochen")
+        }
+    }
+
     /** Resume-Position auf 0 setzen (sowohl serverseitig als auch im lokalen Item-State),
      *  dann den Play-Callback ausführen. */
     fun resetResumeAndPlay(onAfterReset: () -> Unit) {

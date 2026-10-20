@@ -13,6 +13,8 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
+import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -53,6 +55,17 @@ class DownloadRepository @Inject constructor(
     // Letzter abgeschlossener Download (für globale Toasts)
     private val _lastResult = MutableStateFlow<Pair<Int, DownloadResult>?>(null)
     val lastResult: StateFlow<Pair<Int, DownloadResult>?> = _lastResult.asStateFlow()
+
+    // itemId → laufender Download-Job, damit die UI ihn abbrechen kann
+    private val jobs = java.util.concurrent.ConcurrentHashMap<Int, Job>()
+
+    /** Bricht einen laufenden Download ab. Die Cancellation loest in
+     *  downloadItem()/downloadItemToTree() das Aufraeumen der Teildatei aus; ein
+     *  DB-Eintrag entsteht erst nach vollstaendigem Download, ist hier also
+     *  nie vorhanden. Kein Eintrag in [lastResult] (kein Fehler-Toast). */
+    fun cancelDownload(itemId: Int) {
+        jobs[itemId]?.cancel()
+    }
 
     fun consumeLastResult() { _lastResult.value = null }
 
@@ -214,6 +227,8 @@ class DownloadRepository @Inject constructor(
                     val buffer = ByteArray(8192)
                     var bytes: Int
                     while (input.read(buffer).also { bytes = it } != -1) {
+                        // Abbruch auch ohne Suspend-Punkt zuegig greifen lassen
+                        coroutineContext.ensureActive()
                         output.write(buffer, 0, bytes)
                         bytesDownloaded += bytes
                         onProgress(DownloadResult.Progress(bytesDownloaded, totalBytes))
@@ -293,6 +308,8 @@ class DownloadRepository @Inject constructor(
                     val buffer = ByteArray(8192)
                     var bytes: Int
                     while (input.read(buffer).also { bytes = it } != -1) {
+                        // Abbruch auch ohne Suspend-Punkt zuegig greifen lassen
+                        coroutineContext.ensureActive()
                         output.write(buffer, 0, bytes)
                         bytesDownloaded += bytes
                         onProgress(DownloadResult.Progress(bytesDownloaded, totalBytes))
@@ -336,8 +353,9 @@ class DownloadRepository @Inject constructor(
      */
     fun startInBackground(item: Item, downloadDir: File? = null, treeUri: Uri? = null): Job {
         if (_activeDownloads.value.containsKey(item.id)) return Job().apply { complete() }
-        return scope.launch {
+        val job = scope.launch {
             _activeDownloads.update { it + (item.id to 0f) }
+            try {
             val result = if (treeUri != null) {
                 downloadItemToTree(item, treeUri) { progress ->
                     val pct = if (progress.totalBytes > 0)
@@ -354,9 +372,16 @@ class DownloadRepository @Inject constructor(
                     _activeDownloads.update { it + (item.id to pct) }
                 }
             }
-            _activeDownloads.update { it - item.id }
             _lastResult.value = item.id to result
+            } finally {
+                // Auch bei Abbruch: Fortschritt entfernen und Job abmelden
+                _activeDownloads.update { it - item.id }
+                jobs.remove(item.id)
+            }
         }
+        jobs[item.id] = job
+        if (!job.isActive) jobs.remove(item.id)
+        return job
     }
 
     /** Veraltet — bitte [startInBackground] verwenden. */

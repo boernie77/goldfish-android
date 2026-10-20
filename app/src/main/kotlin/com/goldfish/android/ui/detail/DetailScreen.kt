@@ -161,6 +161,7 @@ fun DetailScreen(
                             onToggleWatched = viewModel::toggleWatched,
                             onToggleFavorite = viewModel::toggleFavorite,
                             onStartDownload = viewModel::startDownload,
+                            onCancelDownload = viewModel::cancelDownload,
                             onDeleteDownload = viewModel::deleteDownload,
                             onSelectVariant = viewModel::selectVariant,
                             onOpenPerson = onOpenPerson,
@@ -175,6 +176,7 @@ fun DetailScreen(
                             onToggleWatched = viewModel::toggleWatched,
                             onToggleFavorite = viewModel::toggleFavorite,
                             onStartDownload = viewModel::startDownload,
+                            onCancelDownload = viewModel::cancelDownload,
                             onDeleteDownload = viewModel::deleteDownload,
                             onSelectVariant = viewModel::selectVariant,
                             onOpenPerson = onOpenPerson,
@@ -199,6 +201,7 @@ private fun TabletDetailLayout(
     onToggleWatched: () -> Unit,
     onToggleFavorite: () -> Unit,
     onStartDownload: () -> Unit,
+    onCancelDownload: () -> Unit,
     onDeleteDownload: () -> Unit,
     onSelectVariant: (Int) -> Unit,
     onOpenPerson: (tmdbId: Long, name: String) -> Unit = { _, _ -> },
@@ -256,6 +259,7 @@ private fun TabletDetailLayout(
                 onToggleWatched = onToggleWatched,
                 onToggleFavorite = onToggleFavorite,
                 onStartDownload = onStartDownload,
+                onCancelDownload = onCancelDownload,
                 onDeleteDownload = onDeleteDownload
             )
             if (state.cast.isNotEmpty()) {
@@ -277,6 +281,7 @@ private fun PhoneDetailLayout(
     onToggleWatched: () -> Unit,
     onToggleFavorite: () -> Unit,
     onStartDownload: () -> Unit,
+    onCancelDownload: () -> Unit,
     onDeleteDownload: () -> Unit,
     onSelectVariant: (Int) -> Unit,
     onOpenPerson: (tmdbId: Long, name: String) -> Unit = { _, _ -> },
@@ -335,6 +340,7 @@ private fun PhoneDetailLayout(
                 onToggleWatched = onToggleWatched,
                 onToggleFavorite = onToggleFavorite,
                 onStartDownload = onStartDownload,
+                onCancelDownload = onCancelDownload,
                 onDeleteDownload = onDeleteDownload
             )
             if (state.cast.isNotEmpty()) {
@@ -477,6 +483,7 @@ private fun ActionButtons(
     onToggleWatched: () -> Unit,
     onToggleFavorite: () -> Unit,
     onStartDownload: () -> Unit,
+    onCancelDownload: () -> Unit,
     onDeleteDownload: () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -574,6 +581,14 @@ private fun ActionButtons(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 4.dp)
                     )
+                    OutlinedButton(
+                        onClick = onCancelDownload,
+                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                    ) {
+                        Icon(Icons.Filled.Close, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Download abbrechen")
+                    }
                 }
             }
             else -> {
