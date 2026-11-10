@@ -194,14 +194,12 @@ fun SettingsScreen(
                         TextButton(onClick = { viewModel.dismissDeleteWatched() }) { Text("Abbrechen") }
                     }
                 )
-            } else if (watchedIds != null || state.watchedCheckFailed) {
+            } else if (watchedIds != null) {
                 AlertDialog(
                     onDismissRequest = { viewModel.dismissDeleteWatched() },
                     title = { Text("Gesehene Downloads") },
                     text = {
-                        Text(if (state.watchedCheckFailed)
-                            "Der Server ist nicht erreichbar – der Gesehen-Status kann gerade nicht geprueft werden."
-                        else "Es gibt keine gesehenen Downloads.")
+                        Text("Es gibt keine gesehenen Downloads.")
                     },
                     confirmButton = {
                         TextButton(onClick = { viewModel.dismissDeleteWatched() }) { Text("OK") }

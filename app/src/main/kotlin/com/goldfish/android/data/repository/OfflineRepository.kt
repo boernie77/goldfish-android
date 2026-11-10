@@ -323,6 +323,16 @@ class OfflineRepository @Inject constructor(
 
     fun serialize(item: Item): String = itemAdapter.toJson(item)
 
+    fun isWatched(json: String): Boolean = deserialize(json)?.watched == true
+
+    /** Item-JSON mit geändertem Gesehen-Flag – null, wenn es nichts zu ändern gibt
+     *  (leer/nicht lesbar oder schon gleich). */
+    fun withWatched(json: String, watched: Boolean): String? {
+        val item = deserialize(json) ?: return null
+        if (item.watched == watched) return null
+        return serialize(item.copy(watched = watched))
+    }
+
     private fun minimalItem(d: com.goldfish.android.data.local.DownloadEntity, libraryId: Int): Item {
         // Sehr restriktiv: wir kennen nur das, was die alten DB-Spalten
         // hergeben. Reicht NICHT fuer Detail/Player-Resume, aber zeigt

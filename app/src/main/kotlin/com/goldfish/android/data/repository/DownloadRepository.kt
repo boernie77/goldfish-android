@@ -143,6 +143,16 @@ class DownloadRepository @Inject constructor(
 
     suspend fun getAllDownloadsNow() = dao.getAllDownloadsNow()
 
+    fun isCachedWatched(d: DownloadEntity): Boolean = offlineRepository.isWatched(d.itemJson)
+
+    /** Hält den Gesehen-Status im lokalen Item-Snapshot aktuell (wie Apple
+     *  `updateCachedWatched`), damit „gesehene Downloads entfernen" auch offline stimmt. */
+    suspend fun updateCachedWatched(itemId: Int, watched: Boolean) {
+        val d = dao.getDownload(itemId) ?: return
+        val json = offlineRepository.withWatched(d.itemJson, watched) ?: return
+        dao.updateItemJson(itemId, json)
+    }
+
     suspend fun getDownload(itemId: Int) = dao.getDownload(itemId)
 
     /** Markiert einen Download als "gerade abgespielt" (epoch ms) — fuer den

@@ -283,6 +283,8 @@ class ItemRepository @Inject constructor(
     }
 
     suspend fun setWatched(id: Int, watched: Boolean): Result<Unit> {
+        // Lokalen Download-Snapshot sofort nachziehen (auch offline gewollt).
+        try { downloadRepository.updateCachedWatched(id, watched) } catch (_: Exception) {}
         return try {
             val response = apiClientProvider.api.setWatched(id, WatchedRequest(watched))
             if (response.isSuccessful) {

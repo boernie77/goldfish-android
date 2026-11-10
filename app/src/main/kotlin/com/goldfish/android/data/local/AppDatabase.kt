@@ -88,6 +88,11 @@ interface DownloadDao {
     @Query("DELETE FROM downloads WHERE itemId = :itemId")
     suspend fun deleteDownloadById(itemId: Int)
 
+    // Nur die Item-JSON ändern (kein Full-Row-Replace, sonst werden parallel gesetzte
+    // Spalten wie lastPlayedAt überschrieben).
+    @Query("UPDATE downloads SET itemJson = :json WHERE itemId = :itemId")
+    suspend fun updateItemJson(itemId: Int, json: String)
+
     // Offline "zuletzt abgespielt": Timestamp beim Abspielen setzen.
     @Query("UPDATE downloads SET lastPlayedAt = :ts WHERE itemId = :itemId")
     suspend fun setLastPlayed(itemId: Int, ts: Long)
