@@ -26,6 +26,11 @@ data class SettingsState(
     val saveSuccess: Boolean = false,
     val downloadCount: Int = 0,
     val totalDownloadSize: Long = 0,
+    // "Gesehene Downloads entfernen": IDs der auf dem Server als gesehen markierten
+    // Downloads. null = noch nicht ermittelt; checkingWatched = Server-Abfrage läuft.
+    val watchedDownloadIds: List<Int>? = null,
+    val checkingWatched: Boolean = false,
+    val watchedCheckFailed: Boolean = false,
     val serverLibraries: List<Library> = emptyList(),
     val localLibraries: List<LocalLibraryEntity> = emptyList(),
     // "Nächste Folge automatisch starten" — Pro-Konto-Schalter auf dem SERVER
@@ -173,6 +178,49 @@ class SettingsViewModel @Inject constructor(
     fun deleteAllDownloads() {
         viewModelScope.launch {
             downloadRepository.deleteAllDownloads()
+        }
+    }
+
+    /** Fragt für jeden Download den aktuellen Gesehen-Status beim SERVER ab (der lokal
+     *  gespeicherte Item-Snapshot ist nur der Stand vom Download-Zeitpunkt). Bewusst
+     *  an der Cache-Schicht vorbei (`api.getItem`), sonst käme ein veralteter Wert.
+     *  Nicht erreichbare Items zählen als „nicht gesehen" – im Zweifel nichts löschen. */
+    fun prepareDeleteWatched() {
+        if (_state.value.checkingWatched) return
+        _state.update { it.copy(checkingWatched = true, watchedCheckFailed = false) }
+        viewModelScope.launch {
+            val ids = downloadRepository.getAllDownloadsNow().map { it.itemId }
+            var reached = 0
+            val watched = mutableListOf<Int>()
+            for (id in ids) {
+                try {
+                    val r = apiClientProvider.api.getItem(id)
+                    if (r.isSuccessful) {
+                        reached++
+                        if (r.body()?.watched == true) watched += id
+                    }
+                } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                catch (_: Exception) { /* offline → überspringen */ }
+            }
+            _state.update {
+                it.copy(
+                    checkingWatched = false,
+                    watchedDownloadIds = if (ids.isNotEmpty() && reached == 0) null else watched,
+                    watchedCheckFailed = ids.isNotEmpty() && reached == 0
+                )
+            }
+        }
+    }
+
+    fun dismissDeleteWatched() {
+        _state.update { it.copy(watchedDownloadIds = null, watchedCheckFailed = false) }
+    }
+
+    fun deleteWatchedDownloads() {
+        val ids = _state.value.watchedDownloadIds ?: return
+        _state.update { it.copy(watchedDownloadIds = null) }
+        viewModelScope.launch {
+            for (id in ids) downloadRepository.deleteDownload(id)
         }
     }
 

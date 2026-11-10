@@ -175,6 +175,50 @@ fun SettingsScreen(
                 Text("Alle Downloads entfernen")
             }
 
+            // Gesehene Downloads loeschen — Status kommt frisch vom Server
+            val watchedIds = state.watchedDownloadIds
+            if (watchedIds != null && watchedIds.isNotEmpty()) {
+                AlertDialog(
+                    onDismissRequest = { viewModel.dismissDeleteWatched() },
+                    title = { Text("Gesehene Downloads entfernen?") },
+                    text = {
+                        Text("Es werden ${watchedIds.size} als gesehen markierte Downloads geloescht. " +
+                             "Dies kann nicht rueckgaengig gemacht werden.")
+                    },
+                    confirmButton = {
+                        TextButton(onClick = { viewModel.deleteWatchedDownloads() }) {
+                            Text("Loeschen", color = MaterialTheme.colorScheme.error)
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { viewModel.dismissDeleteWatched() }) { Text("Abbrechen") }
+                    }
+                )
+            } else if (watchedIds != null || state.watchedCheckFailed) {
+                AlertDialog(
+                    onDismissRequest = { viewModel.dismissDeleteWatched() },
+                    title = { Text("Gesehene Downloads") },
+                    text = {
+                        Text(if (state.watchedCheckFailed)
+                            "Der Server ist nicht erreichbar – der Gesehen-Status kann gerade nicht geprueft werden."
+                        else "Es gibt keine gesehenen Downloads.")
+                    },
+                    confirmButton = {
+                        TextButton(onClick = { viewModel.dismissDeleteWatched() }) { Text("OK") }
+                    }
+                )
+            }
+            OutlinedButton(
+                onClick = { viewModel.prepareDeleteWatched() },
+                enabled = state.downloadCount > 0 && !state.checkingWatched,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Filled.Delete, contentDescription = null,
+                    modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(if (state.checkingWatched) "Pruefe Gesehen-Status …" else "Alle gesehenen Downloads entfernen")
+            }
+
             // Download-Ordner-Auswahl per SAF
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(

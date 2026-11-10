@@ -141,6 +141,8 @@ class DownloadRepository @Inject constructor(
 
     fun getAllDownloads() = dao.getAllDownloads()
 
+    suspend fun getAllDownloadsNow() = dao.getAllDownloadsNow()
+
     suspend fun getDownload(itemId: Int) = dao.getDownload(itemId)
 
     /** Markiert einen Download als "gerade abgespielt" (epoch ms) — fuer den
